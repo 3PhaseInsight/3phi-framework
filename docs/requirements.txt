@@ -1,0 +1,9 @@
+sphinx
+dask[distributed]
+sqlalchemy
+numpy
+pyarrow
+s3fs
+psycopg2
+pandas
+xxhash

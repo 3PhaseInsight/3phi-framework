@@ -1,0 +1,15 @@
+# dependencies for local testing, pip install in .venv
+pyarrow
+s3fs
+dask[distributed]
+psycopg2
+bokeh
+
+# sm_classifier
+matplotlib
+tqdm
+
+# stat_labeler
+scipy
+scikit-learn
+statsmodels

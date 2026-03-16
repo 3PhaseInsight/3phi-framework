@@ -1,0 +1,119 @@
+name: CI and Release
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+    tags:
+      - "v*.*.*"
+      - "*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ruff_lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Ruff
+        run: |
+          python -m pip install -U pip
+          pip install ruff==0.6.8
+      - name: Ruff check
+        run: ruff check .
+
+  ruff_format_check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Ruff
+        run: |
+          python -m pip install -U pip
+          pip install ruff==0.6.8
+      - name: Ruff format --check
+        run: ruff format --check .
+
+  build:
+    name: Build dist
+    needs: [ruff_lint, ruff_format_check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # tags for setuptools-scm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: |
+          python -m pip install -U pip build
+
+      # PR-only: override version to a dev version like you did in GitLab
+      - name: Set PR dev version
+        if: github.event_name == 'pull_request'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_NUMBER: ${{ github.run_number }}
+          SHA: ${{ github.sha }}
+        run: |
+          git fetch --force --prune --tags
+          BASE_TAG="$(git tag --list --sort=-v:refname | grep -E '^(v)?[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)"
+          if [ -z "$BASE_TAG" ]; then
+            BASE_VERSION="0.0.0"
+          else
+            BASE_VERSION="${BASE_TAG#v}"
+          fi
+          SHORT_SHA="${SHA:0:7}"
+          export SETUPTOOLS_SCM_PRETEND_VERSION="${BASE_VERSION}.dev${RUN_NUMBER}+pr.${PR_NUMBER}.sha${SHORT_SHA}"
+          echo "Building version: $SETUPTOOLS_SCM_PRETEND_VERSION"
+          echo "SETUPTOOLS_SCM_PRETEND_VERSION=$SETUPTOOLS_SCM_PRETEND_VERSION" >> $GITHUB_ENV
+
+      - name: Build (sdist + wheel)
+        run: python -m build
+
+      # Upload artifacts for PR builds (7 days)
+      - name: Upload dist artifact (PR/dev)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-pr
+          path: dist/*
+          retention-days: 7
+
+      # Upload artifacts for tags too (optional but handy)
+      - name: Upload dist artifact (tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-release
+          path: dist/*
+          retention-days: 30
+
+  publish_pypi:
+    name: Publish to PyPI (tags only)
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # for PyPI Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-release
+          path: dist
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
