@@ -132,7 +132,7 @@ class StatLabeler(BaseDataApp):
 
 
 if __name__ == "__main__":
-    config = config = {
+    config = {
         "dask": {
             "local": True,
             "n_workers": 6,
