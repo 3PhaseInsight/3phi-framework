@@ -1,6 +1,5 @@
-from dataclasses import dataclass
-
 import logging
+from dataclasses import dataclass
 
 import threephi_framework.db.db as threephi_db
 from src.threephi_framework import TopologyController
@@ -15,6 +14,7 @@ class TopologyTesterConfig(BaseConfig):
     delivery_point_id: int
     cabinet_id: int
     feeder_id: int
+
 
 class TopologyTester(BaseDataApp):
     def __init__(self, config):
@@ -37,15 +37,14 @@ class TopologyTester(BaseDataApp):
         meters = self.topology_controller.get_meters(True, True)
         logging.info(f"get_meters(has_heat_pump=True, has_solar_panel=True): {meters}")
 
-
         # Test get_meters_for_node (delivery_point)
         meters = self.topology_controller.get_meters_for_node(self.delivery_point_id, "delivery_point")
-        logging.info(f"get_meters_for_node(node_id={self.delivery_point_id}, \"delivery_point\"): {meters}")
+        logging.info(f'get_meters_for_node(node_id={self.delivery_point_id}, "delivery_point"): {meters}')
 
         # Test get_meters_for_node (cabinet)
         meters = self.topology_controller.get_meters_for_node(self.cabinet_id, "cabinet")
-        logging.info(f"get_meters_for_node(node_id={self.cabinet_id}, \"cabinet\"): {meters}")
+        logging.info(f'get_meters_for_node(node_id={self.cabinet_id}, "cabinet"): {meters}')
 
         # Test get_meters_for_node (feeder)
         meters = self.topology_controller.get_meters_for_node(self.feeder_id, "lv_feeder")
-        logging.info(f"get_meters_for_node(node_id={self.feeder_id}, \"lv_feeder\"): {meters}")
+        logging.info(f'get_meters_for_node(node_id={self.feeder_id}, "lv_feeder"): {meters}')
