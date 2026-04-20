@@ -17,6 +17,7 @@ from .controllers.topology import TopologyController
 from .data_apps.base import BaseDataApp
 from .data_apps.timeseries_ingestor import TimeseriesIngestor
 from .data_apps.topology_ingestor import TopologyIngestor
+from .data_apps.topology_tester import TopologyTester
 from .data_extractor.data_extractor import DataExtractor
 from .db_connector import DBConnector
 from .object_storage.s3_connector import S3Connector
@@ -27,6 +28,7 @@ __all__ = [
     "BaseDataApp",
     "TimeseriesIngestor",
     "TopologyIngestor",
+    "TopologyTester",
     "DataExtractor",
     "TopologyController",
     "__version__",
