@@ -2,9 +2,9 @@ import logging
 from dataclasses import dataclass
 
 import threephi_framework.db.db as threephi_db
-from src.threephi_framework import TopologyController
-from src.threephi_framework.data_apps.base import BaseDataApp
-from src.threephi_framework.data_apps.base_config import BaseConfig
+from threephi_framework import TopologyController
+from threephi_framework.data_apps.base import BaseDataApp
+from threephi_framework.data_apps.base_config import BaseConfig
 
 
 @dataclass(frozen=True)
@@ -48,3 +48,17 @@ class TopologyTester(BaseDataApp):
         # Test get_meters_for_node (feeder)
         meters = self.topology_controller.get_meters_for_node(self.feeder_id, "lv_feeder")
         logging.info(f'get_meters_for_node(node_id={self.feeder_id}, "lv_feeder"): {meters}')
+
+if __name__ == "__main__":
+    config = {
+        "dask": {
+            "local": True,
+            "n_workers": 6,
+        },
+        "substation_id": 147237,
+        "delivery_point_id": 999994,
+        "cabinet_id": 996044,
+        "feeder_id": 910228,
+    }
+    with TopologyTester(config) as app:
+        app.run()

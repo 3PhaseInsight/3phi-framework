@@ -4,6 +4,8 @@ s3fs
 dask[distributed]
 psycopg2
 bokeh
+sqlalchemy
+xxhash
 
 # sm_classifier
 matplotlib
