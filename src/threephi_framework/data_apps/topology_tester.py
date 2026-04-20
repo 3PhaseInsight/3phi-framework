@@ -49,6 +49,7 @@ class TopologyTester(BaseDataApp):
         meters = self.topology_controller.get_meters_for_node(self.feeder_id, "lv_feeder")
         logging.info(f'get_meters_for_node(node_id={self.feeder_id}, "lv_feeder"): {meters}')
 
+
 if __name__ == "__main__":
     config = {
         "dask": {
