@@ -8,3 +8,4 @@ docker/tmp
 docker/db/init/3_db_seed.sql
 docker/object_storage/*
 **.bak
+**.venv
