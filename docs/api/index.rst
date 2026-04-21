@@ -53,7 +53,8 @@ SM Classifier
 Controllers
 -----------
 
-Controllers provide the programmatic API for querying and manipulating data.
+Controllers provide a programmatic API for querying and manipulating data,
+using SQL for relational data and the relevant protocols (for example, S3) for file-based data.
 They are used directly when integrating with orchestration tools such as
 Airflow, or when building custom workflows on top of the framework.
 
