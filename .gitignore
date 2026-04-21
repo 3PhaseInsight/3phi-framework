@@ -9,3 +9,12 @@ docker/db/init/3_db_seed.sql
 docker/object_storage/*
 **.bak
 **.venv
+docker/db/init/3_db_seed 1.sql
+Tester_*.json
+.venv/
+__pycache__/
+*.pyc
+src/threephi_framework/data_apps/Results/streamlit_sm_classifier/streamlit_sm_classifier_SM_classification.json
+.env
+.pre-commit-config.yaml
+src/threephi_framework/data_apps/Results/streamlit_sm_classifier/streamlit_sm_classifier_SM_characterization.json
