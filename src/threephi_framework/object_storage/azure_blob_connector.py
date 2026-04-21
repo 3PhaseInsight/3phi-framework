@@ -92,7 +92,9 @@ class AzureBlobConnector(BaseConnector):
 
     # === DataFrame reads / writes ===
 
-    def read_csv(self, path: str, dtype: dict[str, Any] | None = None, blocksize: int | None = None, **kwargs: Any) -> dd.DataFrame:
+    def read_csv(
+        self, path: str, dtype: dict[str, Any] | None = None, blocksize: int | None = None, **kwargs: Any
+    ) -> dd.DataFrame:
         return dd.read_csv(
             path,
             storage_options=self.get_dask_storage_options(),
@@ -101,7 +103,9 @@ class AzureBlobConnector(BaseConnector):
             **kwargs,
         )
 
-    def read_small_csv(self, path: str, dtype: dict[str, Any] | None = None, usecols: list[str] | None = None, **kwargs: Any) -> pd.DataFrame:
+    def read_small_csv(
+        self, path: str, dtype: dict[str, Any] | None = None, usecols: list[str] | None = None, **kwargs: Any
+    ) -> pd.DataFrame:
         with self.fs.open(path, "rb") as f:
             return pd.read_csv(f, dtype=dtype, usecols=usecols, **kwargs)
 
@@ -175,7 +179,16 @@ class AzureBlobConnector(BaseConnector):
 
     # === Plotting ===
 
-    def save_plot(self, path: str, fig: Any, format: str = "svg", transparent: bool = False, dpi: int = 300, overwrite: bool = True, save_kwargs: dict | None = None) -> None:
+    def save_plot(
+        self,
+        path: str,
+        fig: Any,
+        format: str = "svg",
+        transparent: bool = False,
+        dpi: int = 300,
+        overwrite: bool = True,
+        save_kwargs: dict | None = None,
+    ) -> None:
         """
         Save a matplotlib figure to Azure Blob Storage.
 
