@@ -1,8 +1,6 @@
 import logging
 from dataclasses import dataclass
 
-import threephi_framework.db.db as threephi_db
-from threephi_framework import TopologyController
 from threephi_framework.data_apps.base import BaseDataApp
 from threephi_framework.data_apps.base_config import BaseConfig
 
@@ -26,7 +24,6 @@ class TopologyTester(BaseDataApp):
         self.delivery_point_id = config["delivery_point_id"]
         self.cabinet_id = config["cabinet_id"]
         self.feeder_id = config["feeder_id"]
-        self.topology_controller = TopologyController(threephi_db.new_session)
 
     def run(self):
         # Test get_meters_for_substation

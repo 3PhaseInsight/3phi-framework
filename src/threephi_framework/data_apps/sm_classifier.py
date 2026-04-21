@@ -6,13 +6,8 @@ import matplotlib
 import numpy as np
 import pandas as pd
 
-from threephi_framework.controllers.meta import MetaController
-from threephi_framework.controllers.time_series import TimeSeriesController
-from threephi_framework.controllers.topology import TopologyController
 from threephi_framework.data_apps.base import BaseDataApp
-from threephi_framework.db import db
 from threephi_framework.dtu.sm_classifier import meter_evaluation, save_sm_plot
-from threephi_framework.object_storage.s3_connector import S3Connector
 
 matplotlib.use("Agg")
 import json
@@ -33,11 +28,6 @@ class SMClassifier(BaseDataApp):
     def __init__(self, config):
         # Run BaseDataApp Init
         super().__init__(config=config)
-
-        # Init Controllers
-        self.time_series_controller = TimeSeriesController(S3Connector())
-        self.topology_controller = TopologyController(db.new_session)
-        self.meta_controller = MetaController(db.new_session)
 
         # Unpack the config
         self.dataset_root_path = config.get("dataset_root_path")

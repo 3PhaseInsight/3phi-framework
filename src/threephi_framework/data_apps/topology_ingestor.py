@@ -1,5 +1,3 @@
-import threephi_framework.db.db as threephi_db
-from threephi_framework.controllers.topology import TopologyController
 from threephi_framework.data_apps.base import BaseDataApp
 
 
@@ -27,7 +25,6 @@ class TopologyIngestor(BaseDataApp):
         self.override = self.config["override"]
         self.topology_source_path = self.config["topology_source_path"]
         self.sm_cab_source_path = self.config["sm_cab_source_path"]
-        self.topology_controller = TopologyController(threephi_db.new_session)
 
     def run(self):
         workflow = "topology_ingestion"

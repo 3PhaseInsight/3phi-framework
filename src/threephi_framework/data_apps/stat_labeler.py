@@ -5,8 +5,6 @@ from datetime import datetime
 import numpy as np
 from dask import compute, delayed
 
-import threephi_framework.db.db as threephi_db
-from threephi_framework import TopologyController
 from threephi_framework.data_apps.base import BaseDataApp
 from threephi_framework.data_apps.base_config import BaseConfig
 from threephi_framework.dtu.stat_labeler import label_meters
@@ -38,8 +36,6 @@ class StatLabeler(BaseDataApp):
         super().__init__(config)
 
         self.config = StatLabelerConfig(**config)
-
-        self.topology_controller = TopologyController(threephi_db.new_session)
 
     # Method to update config settings via the method arguments
     def _update_config(self, args):

@@ -1,9 +1,14 @@
 import logging
 from abc import abstractmethod
+from functools import cached_property
 from time import time
 
 from dask.distributed import Client
 
+import threephi_framework.db.db as threephi_db
+from threephi_framework.controllers.meta import MetaController
+from threephi_framework.controllers.time_series import TimeSeriesController
+from threephi_framework.controllers.topology import TopologyController
 from threephi_framework.data_extractor.data_extractor import DataExtractor
 
 
@@ -31,6 +36,18 @@ class BaseDataApp:
         self.dask_client: Client
 
         _set_up_logger()
+
+    @cached_property
+    def topology_controller(self):
+        return TopologyController(threephi_db.new_session)
+
+    @cached_property
+    def meta_controller(self):
+        return MetaController(threephi_db.new_session)
+
+    @cached_property
+    def time_series_controller(self):
+        return TimeSeriesController(threephi_db.new_session)
 
     def __enter__(self):
         self.init_dask()
