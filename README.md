@@ -87,6 +87,63 @@ chmod +x execute_data_app.sh
 
 The script will install the dependencies in [requirements.txt](requirements.txt) in your virtual environment, set up environment variables as they are listed in [.env](.env) and execute the data app as a python module.
 
+## Object Storage Connectors
+
+The framework abstracts object storage behind `BaseConnector` so data apps are decoupled from the underlying storage backend. Two implementations are provided out of the box.
+
+### S3Connector
+
+For AWS S3 or any S3-compatible storage (the default local dev setup uses **MinIO**).
+
+```python
+from threephi_framework import S3Connector
+
+connector = S3Connector(data_dir_path="timeseries/ready")
+```
+
+| Environment variable | Required | Description |
+|---|---|---|
+| `S3_ENDPOINT_URL` | Yes | Full URL of the S3 endpoint, e.g. `http://localhost:19000` for MinIO |
+| `S3_ACCESS_KEY` | Yes | Access key / username |
+| `S3_SECRET_KEY` | Yes | Secret key / password |
+
+The bucket name is fixed to `3phi`. All paths are rooted at `s3://3phi/<data_dir_path>`.
+
+### AzureBlobConnector
+
+For **Azure Blob Storage**. Requires the `adlfs` package (`pip install adlfs`).
+
+```python
+from threephi_framework import AzureBlobConnector
+
+connector = AzureBlobConnector(data_dir_path="timeseries/ready")
+```
+
+| Environment variable | Required | Description |
+|---|---|---|
+| `AZURE_STORAGE_ACCOUNT_NAME` | Yes | Azure Storage Account name |
+| `AZURE_STORAGE_CONTAINER_NAME` | Yes | Blob container name (equivalent to the S3 bucket) |
+| `AZURE_STORAGE_ACCOUNT_KEY` | No | Account key for key-based auth. If omitted, `DefaultAzureCredential` is used automatically |
+
+All paths are rooted at `az://<container>/<data_dir_path>`.
+
+**Authentication** — when `AZURE_STORAGE_ACCOUNT_KEY` is not set, the connector falls back to [`DefaultAzureCredential`](https://learn.microsoft.com/en-us/python/api/azure-identity/azure.identity.defaultazurecredential), which transparently supports managed identity, service principal (via environment variables), and `az login` for local development. No code changes are needed between environments.
+
+### Writing a custom connector
+
+Subclass `BaseConnector` and implement all abstract methods. The connector is injected into `TimeSeriesController` at construction time, so any conforming implementation works as a drop-in replacement:
+
+```python
+from threephi_framework.object_storage.base_connector import BaseConnector
+
+class MyConnector(BaseConnector):
+    ...
+
+controller = TimeSeriesController(connector=MyConnector(data_dir_path="..."))
+```
+
+---
+
 ## Data Model
 
 The currently assumed datamodel is illustrated in the diagram below:
