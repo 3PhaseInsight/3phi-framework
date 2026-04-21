@@ -15,20 +15,24 @@ except PackageNotFoundError:
 # Re-export light, library-facing APIs only
 from .controllers.topology import TopologyController
 from .data_apps.base import BaseDataApp
+from .data_apps.sm_classifier import SMClassifier
 from .data_apps.timeseries_ingestor import TimeseriesIngestor
 from .data_apps.topology_ingestor import TopologyIngestor
 from .data_apps.topology_tester import TopologyTester
 from .data_extractor.data_extractor import DataExtractor
 from .db_connector import DBConnector
+from .object_storage.azure_blob_connector import AzureBlobConnector
 from .object_storage.s3_connector import S3Connector
 
 __all__ = [
     "S3Connector",
+    "AzureBlobConnector",
     "DBConnector",
     "BaseDataApp",
     "TimeseriesIngestor",
     "TopologyIngestor",
     "TopologyTester",
+    "SMClassifier",
     "DataExtractor",
     "TopologyController",
     "__version__",

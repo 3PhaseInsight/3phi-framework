@@ -15,6 +15,27 @@ class TopologyTesterConfig(BaseConfig):
 
 
 class TopologyTester(BaseDataApp):
+    """
+    Topology Tester Data App.
+
+    Exercises the key topology query methods of :class:`~threephi_framework.controllers.topology.TopologyController`
+    against a live database, logging the results. Useful for verifying that a topology
+    ingestion landed correctly.
+
+    The following config parameters are required:
+
+    - ``dask`` (dict): Dask cluster settings (see :class:`~threephi_framework.data_apps.base.BaseDataApp`).
+    - ``substation_id`` (str | int): ID of a secondary substation to query meters for.
+    - ``delivery_point_id`` (int): ID of a delivery point node to query meters for.
+    - ``cabinet_id`` (int): ID of a cabinet node to query meters for.
+    - ``feeder_id`` (int): ID of an LV feeder node to query meters for.
+
+    Usage::
+
+        with TopologyTester(config) as app:
+            app.run()
+    """
+
     def __init__(self, config):
         super().__init__(config)
 

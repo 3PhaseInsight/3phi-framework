@@ -20,6 +20,49 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../")))
 
 
 class SMClassifier(BaseDataApp):
+    """
+    Smart Meter Classification Data App.
+
+    Evaluates each smart meter's time series data to produce a per-meter
+    characterization (data quality, statistics, connectivity) and a
+    summary classification across the full meter population.
+
+    The following config parameters are supported:
+
+    - ``dataset_root_path`` (str): Root path of the time series dataset in object storage.
+    - ``Data_batch`` (str): Batch identifier controlling column naming conventions.
+      Use ``"first_batch"`` for datasets with uppercase column names (``METER_NUMBER``,
+      ``VOLTAGE_``, etc.); any other value assumes lowercase names.
+    - ``use_dask`` (bool): If ``True``, distribute meter evaluation across Dask workers.
+    - ``sm_ids`` (str | list[str]): ``"All"`` to classify every meter with data, or an
+      explicit list of meter ID strings.
+    - ``run_name`` (str): Label for this run; used as the output directory name.
+    - ``save_results`` (bool): Persist characterization and classification dicts to JSON.
+    - ``save_plots`` (bool): Save per-meter time series plots to object storage.
+    - ``plot_cfg`` (dict): Plot configuration including ``Variable_selection``,
+      ``Phase_selection``, ``SM_selection``, and ``Plotting_format``.
+    - ``no_data_limit`` (float): Fraction of max recording period below which a phase is
+      considered unconnected. Defaults to ``0.025``.
+    - ``good_data_limit`` (float): Corruption fraction threshold for "Good" quality.
+      Defaults to ``0.1``.
+    - ``medium_data_limit`` (float): Corruption fraction threshold for "Medium" quality.
+      Defaults to ``0.5``.
+    - ``v_lim`` (float): Voltage threshold (V) below which a measurement is considered
+      implausible. Defaults to ``207``.
+    - ``offset_threshold`` (float): Fraction of plausible measurements below ``v_lim``
+      that triggers a connection error. Defaults to ``0.95``.
+    - ``cons_period_threshold`` (int): Minimum consecutive time steps to count as a
+      sustained on or off period when detecting switching. Defaults to ``192`` (2 days
+      at 15-minute resolution).
+    - ``frozen_range`` (int): Number of consecutive identical values that constitute a
+      frozen signal. Defaults to ``12``.
+
+    Usage::
+
+        with SMClassifier(config) as app:
+            app.run()
+    """
+
     # Some variables for plotting
     DIR_DATA_APP = os.path.dirname(os.path.abspath(__file__))
     ALLOWED_VARIABLES = {"V", "P14", "P23", "Q12", "Q34"}

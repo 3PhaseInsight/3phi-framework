@@ -1,0 +1,157 @@
+# AGENTS.md — 3phi-framework
+
+Quick-reference for AI agents working in this repository. Read this before exploring files.
+
+## What this repo is
+
+`threephi_framework` (PyPI: `3phi-framework`) is a Python library for **LV electrical grid data management**: ingesting smart meter time series, managing network topology, classifying meter data quality, and running distributed analytics via Dask. Python 3.12+, MIT license.
+
+## Directory map
+
+```
+src/threephi_framework/
+├── __init__.py                   # Public API (S3Connector, DBConnector, BaseDataApp, controllers, data apps)
+├── db/db.py                      # SQLAlchemy engine + new_session() factory
+├── db_connector.py               # DBConnector: transactional session wrapper
+├── object_storage/
+│   ├── base_connector.py         # Abstract storage interface
+│   └── s3_connector.py           # MinIO/S3 impl (s3fs + Dask storage options)
+├── models/
+│   ├── base.py                   # BaseModel (DeclarativeBase)
+│   ├── topology/lv_schema_mixin.py   # Sets schema="lv" for topology tables
+│   ├── meta/meta_schema_mixin.py     # Sets schema for metadata tables
+│   ├── topology/assets/          # SecondarySubstation, Transformer, Feeder, Cabinet, DeliveryPoint, Meter
+│   └── topology/graph/           # Node, Edge, Cable, EdgeCable, TopologyVersion
+├── resources/
+│   ├── base.py                   # BaseResource: session=self.s, bulk_insert(), _log_*()
+│   ├── staging.py                # Temp tables for bulk ingestion
+│   ├── sanity.py                 # Pre-commit data validation checks
+│   ├── topology/                 # Mirrors models/topology/ (assets + graph)
+│   └── meta/                    # MetaMeterResource, RunResultResource
+├── controllers/
+│   ├── topology.py               # TopologyController: version management, ingestion, queries
+│   ├── meta.py                   # MetaController: meter metadata, classifier outputs
+│   └── time_series.py            # TimeSeriesController: S3 time series access
+├── data_apps/
+│   ├── base.py                   # BaseDataApp: context manager, Dask lifecycle, cached controllers
+│   ├── base_config.py            # BaseConfig frozen dataclass → .to_dict()
+│   ├── timeseries_ingestor.py
+│   ├── topology_ingestor.py
+│   ├── topology_tester.py
+│   ├── sm_classifier.py
+│   └── stat_labeler.py
+├── data_extractor/
+│   └── data_extractor.py         # CSV→Parquet partitioning, sharded S3 writes
+├── schemas/v1/                   # Pandas dtype definitions (topology, phase_measurements)
+├── dtu/                          # Data transformation utilities (sm_classifier, stat_labeler)
+└── util/util.py                  # v1_get_shard_for_meter_id() — xxhash % 3 sharding
+```
+
+No `tests/` directory. Integration testing is done via `if __name__ == "__main__"` blocks in data apps.
+
+## Architecture: three-tier pattern
+
+Every domain follows the same layering. Never skip tiers.
+
+```
+Data App  →  Controller  →  Resource  →  Model (ORM)
+```
+
+| Layer | Responsibility | Base class |
+|---|---|---|
+| Data App | Orchestration, config, Dask lifecycle | `BaseDataApp` |
+| Controller | Domain operations, coordinates resources | — |
+| Resource | SQL/S3 CRUD, domain queries | `BaseResource` |
+| Model | SQLAlchemy ORM table definition | `BaseModel` |
+
+**Adding a new domain entity** means adding a Model, a Resource, wiring into a Controller, and optionally a Data App — in that order.
+
+## Key abstractions
+
+### BaseDataApp (`data_apps/base.py`)
+Context manager. Always use as `with MyApp(config) as app: app.run()`.
+- `__enter__`: starts Dask client (local or remote TCP)
+- `__exit__`: closes Dask client, logs any exception
+- Controllers are `@cached_property` — instantiated lazily on first access
+- Subclasses must implement `run()`
+
+### BaseResource (`resources/base.py`)
+- Constructor takes a `Session`; stored as `self.s`
+- `bulk_insert(table, rows: Iterable[dict])` — wraps SQLAlchemy `insert().values()`
+- `_log_debug/info/warning/error()` — prefer these over bare `logging` calls
+
+### TopologyController (`controllers/topology.py`)
+- Central controller for topology lifecycle
+- `ingest(topology_ddf, sm_cab_ddf)`: full ingestion pipeline with staging, sanity checks, and atomic version flip via `flip_current_to(version)`
+- `TopologyVersion` with `is_current` flag enables reproducible historical queries
+
+### S3Connector (`object_storage/s3_connector.py`)
+- Wraps s3fs; provides Dask-compatible storage options
+- Parquet reads/writes partitioned by shard (meter_id → `util.v1_get_shard_for_meter_id()` → 3 shards)
+
+### Config dict shape
+
+```python
+config = {
+    "result_name": "optional_run_label",   # defaults to unix timestamp
+    "dask": {
+        # Remote cluster:
+        "host": "dask-scheduler",
+        "port": "8786",
+        # OR local cluster:
+        "local": True,
+        "n_workers": 2,
+    }
+}
+```
+
+## Domain model
+
+LV topology hierarchy (parent → child):
+```
+SecondarySubstation → Transformer → Feeder → Cabinet → DeliveryPoint → Meter
+```
+All live in the `lv` DB schema. Meter metadata (JSONB columns `data_quality`, `data_statistics`, `connectivity`) lives in the `meta`/public schema.
+
+## Naming conventions
+
+| Thing | Convention | Example |
+|---|---|---|
+| ORM model | `*Model` | `MeterModel`, `MetaMeterModel` |
+| Resource | `*Resource` | `MeterResource`, `MetaMeterResource` |
+| Controller | `*Controller` | `TopologyController` |
+| Data app | descriptive noun | `TimeseriesIngestor`, `SMClassifier` |
+| DB schemas | `lv` (topology), `public` (meta) | — |
+
+## Code style
+
+- Ruff enforced: `E, F, W, UP, B, SIM, I` rules
+- Line length: 120 characters
+- Quote style: double quotes
+- Python 3.12+ — use modern syntax (match, `X | Y` unions, `type` aliases)
+- Run `ruff check` and `ruff format` before committing; pre-commit hook does this automatically
+
+## Environment
+
+All connection settings come from `.env` (not committed):
+
+```bash
+S3_ENDPOINT_URL=http://localhost:19000
+S3_ACCESS_KEY=minioadmin
+S3_SECRET_KEY=minioadmin
+DB_TYPE=POSTGRES
+DB_USER=postgres
+DB_PASSWORD=password
+DB_NAME=3phi-db
+DB_HOST=localhost
+DB_PORT=5432
+```
+
+Local dev: `docker compose up -d` inside `docker/` spins up PostgreSQL + MinIO.
+
+## What NOT to do
+
+- Do not bypass the Controller/Resource tiers by writing SQL directly in Data Apps
+- Do not create a new session manually — always use `threephi_db.new_session` factory
+- Do not run Dask operations outside a `BaseDataApp` context manager
+- Do not add a new model schema without a corresponding mixin (see `LvSchemaMixin`, `MetaSchemaMixin`)
