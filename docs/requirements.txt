@@ -4,6 +4,7 @@ sqlalchemy
 numpy
 pyarrow
 s3fs
+adlfs
 psycopg2
 pandas
 xxhash

@@ -78,7 +78,7 @@ This will bring up a local DB and a MinIO Object Storage seeded with the data yo
 
 Use the utility script [execute_data_app.sh](execute_data_app.sh) and pass the data app name as an argument, e.g.:
 ```
-./exectue_data_app.sh sm_classifier
+./execute_data_app.sh sm_classifier
 ```
 In case the script is not executable, make it executable:
 ```
