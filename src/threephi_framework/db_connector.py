@@ -96,20 +96,20 @@ class DBConnector:
         return max_seq
 
     def upsert_file_index(
-            self,
-            s3_key: str,
-            dt: str,
-            shard: int,
-            seq: int,
-            ts_start: str,
-            ts_end: str,
-            rows: int,
-            bytes: int,
-            schema_version: str,
-            status: str,
-            batch_id: uuid.UUID,
-            ingest_file: str,
-            committed_at: str | None = None,
+        self,
+        s3_key: str,
+        dt: str,
+        shard: int,
+        seq: int,
+        ts_start: str,
+        ts_end: str,
+        rows: int,
+        bytes: int,
+        schema_version: str,
+        status: str,
+        batch_id: uuid.UUID,
+        ingest_file: str,
+        committed_at: str | None = None,
     ) -> uuid.UUID:
         new_file_id = str(uuid.uuid4())
         query = insert(self.file_index).values(
