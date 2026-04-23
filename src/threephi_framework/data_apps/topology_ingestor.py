@@ -4,20 +4,20 @@ from threephi_framework.data_apps.base import BaseDataApp
 class TopologyIngestor(BaseDataApp):
     """
     Topology Ingestion Data App.
-    The following config parameters are expected to be present in the config:
-        - result_name: This should describe the name any associated results will be stored under.
-        - dask: This should be an object including "host" and "port" where the Dask Scheduler can be reached.
-        - override: Boolean describing whether the workflow should be executed again,
-          even if it already has been executed.
-        - topology_source_path: Path where the topology source CSV file can be read.
-        - sm_cab_source_path: Path where the meter-cabinet-connection source CSV file can be read.
-        - parquet_destination_path: Path (in Blob Storage) where the parquet files should be stored.
 
-    Usage:
-    ```
-    with TopologyIngestor(config) as app:
-        app.run()
-    ````
+    The following config parameters are expected to be present in the config:
+
+    - result_name: This should describe the name any associated results will be stored under.
+    - dask: This should be an object including "host" and "port" where the Dask Scheduler can be reached.
+    - override: Boolean describing whether the workflow should be executed again, even if it already has been executed.
+    - topology_source_path: Path where the topology source CSV file can be read.
+    - sm_cab_source_path: Path where the meter-cabinet-connection source CSV file can be read.
+    - parquet_destination_path: Path (in Blob Storage) where the parquet files should be stored.
+
+    Usage::
+
+        with TopologyIngestor(config) as app:
+            app.run()
     """
 
     def __init__(self, config):

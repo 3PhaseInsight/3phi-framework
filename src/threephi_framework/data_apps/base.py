@@ -21,11 +21,12 @@ def _set_up_logger():
 class BaseDataApp:
     """
     Data App Base Class. This class automatically sets up a connection to a Dask Cluster as a Context Manager.
-    Usage:
-    ```
+
+    Usage::
+
         with DataApp(config=config) as app:
             app.run()
-    ```
+
     This ensures that any Connection to the Dask Cluster is properly closed down again.
     """
 

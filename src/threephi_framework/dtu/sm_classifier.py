@@ -3,15 +3,14 @@ import pandas as pd
 from tqdm import tqdm
 
 import threephi_framework.db.db as threephi_db
-from threephi_framework import DataExtractor
 from threephi_framework.controllers.meta import MetaController
+from threephi_framework.data_extractor.data_extractor import DataExtractor
+from threephi_framework.object_storage.s3_connector import S3Connector
 
 matplotlib.use("Agg")
 import os
 
 from matplotlib import pyplot as plt
-
-from threephi_framework import S3Connector
 
 
 def save_sm_plot(sm_id, sm_df, sm_id_results, cfg):

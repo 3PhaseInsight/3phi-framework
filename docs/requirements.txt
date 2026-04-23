@@ -8,3 +8,5 @@ adlfs
 psycopg2
 pandas
 xxhash
+matplotlib
+tqdm

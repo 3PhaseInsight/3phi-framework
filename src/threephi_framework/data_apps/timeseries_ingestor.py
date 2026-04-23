@@ -4,20 +4,20 @@ from threephi_framework.data_apps.base import BaseDataApp
 class TimeseriesIngestor(BaseDataApp):
     """
     Timeseries Ingestion Data App.
-    The following config parameters are expected to be present in the config:
-        - result_name: This should describe the name any associated results will be stored under.
-        - dask: This should be an object including "host" and "port" where the Dask Scheduler can be reached.
-        - override: Boolean describing whether the workflow should be executed again,
-          even if it already has been executed.
-        - csv_source_path: Path where the source CSV files can be read.
-        - csv_file_pattern: Filename pattern of the CSV files that should be ingested.
-        - parquet_destination_path: Path (in Blob Storage) where the parquet files should be stored.
 
-    Usage:
-    ```
-    with TimeseriesIngestor(config) as app:
-        app.run()
-    ````
+    The following config parameters are expected to be present in the config:
+
+    - result_name: This should describe the name any associated results will be stored under.
+    - dask: This should be an object including "host" and "port" where the Dask Scheduler can be reached.
+    - override: Boolean describing whether the workflow should be executed again, even if it already has been executed.
+    - csv_source_path: Path where the source CSV files can be read.
+    - csv_file_pattern: Filename pattern of the CSV files that should be ingested.
+    - parquet_destination_path: Path (in Blob Storage) where the parquet files should be stored.
+
+    Usage::
+
+        with TimeseriesIngestor(config) as app:
+            app.run()
     """
 
     def __init__(self, config):
