@@ -26,7 +26,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from threephi_framework.data_extractor.data_extractor import DataExtractor
-from threephi_framework.data_apps.base import BaseDataApp
+from threephi_framework.object_storage.s3_connector import S3Connector
 from threephi_framework.data_apps.timeseries_ingestor import TimeseriesIngestor
 from threephi_framework.data_apps.topology_ingestor import TopologyIngestor
 from threephi_framework.data_apps.sm_classifier import SMClassifier
@@ -36,11 +36,8 @@ from threephi_framework.models.meta.meter import MetaMeterModel
 from threephi_framework.models.topology.assets.cabinet import CabinetModel
 from threephi_framework.models.topology.assets.delivery_point import DeliveryPointModel
 from threephi_framework.models.topology.assets.feeder import FeederModel
-from threephi_framework.models.topology.assets.meter import MeterModel as TopologyMeterModel
-from threephi_framework.models.topology.assets.secondary_substation import SecondarySubstationModel
 from threephi_framework.models.topology.assets.transformer import TransformerModel
 from threephi_framework.models.topology.graph.cable import CableModel
-from threephi_framework.models.topology.graph.edge import EdgeModel
 from threephi_framework.models.topology.graph.node import NodeModel
 from threephi_framework.models.topology.graph.topology_version import TopologyVersionModel
 import threephi_framework.db.db as threephi_db
@@ -130,15 +127,33 @@ class StreamlitLogHandler(logging.Handler):
 
 @st.cache_resource
 def get_extractor(data_dir_path: str) -> DataExtractor:
-    """Initialize a shared DataExtractor instance for data access across Streamlit sessions."""
-    return DataExtractor(data_dir_path=data_dir_path)
+    """Initialize a shared DataExtractor and bind it to the selected dataset root."""
+    extractor = DataExtractor()
+    extractor.s3_connector = S3Connector(data_dir_path=data_dir_path)
+    return extractor
 
 
-class StreamlitOrchestrator(BaseDataApp):
-    """Thin wrapper that inherits from BaseDataApp and orchestrates existing data apps."""
+class StreamlitOrchestrator:
+    """Thin wrapper that orchestrates existing data apps with validated runtime config."""
 
-    def run(self):
-        return None
+    def __init__(self, data_dir_path: str):
+        if not data_dir_path or not str(data_dir_path).strip():
+            raise ValueError("data_dir_path is required.")
+        self.data_dir_path = str(data_dir_path).strip()
+
+    @staticmethod
+    def _validate_workers(n_workers: int) -> int:
+        workers = int(n_workers)
+        if workers < 1:
+            raise ValueError("n_workers must be >= 1.")
+        return workers
+
+    @staticmethod
+    def _normalize_sm_ids(sm_ids: list[str]) -> list[str]:
+        normalized = [str(sm_id).strip() for sm_id in sm_ids if str(sm_id).strip()]
+        if not normalized:
+            raise ValueError("At least one smart meter id is required.")
+        return normalized
 
     # a method for timeseries ingestor. Inherits the logic from TimeseriesIngestor, 
     # but allows to specify some of the config parameters from the UI.
@@ -151,8 +166,9 @@ class StreamlitOrchestrator(BaseDataApp):
         n_workers: int,
     ) -> str:
         """ A Streamlit specific method to run the timeseries ingestor with config parameters from the UI."""
+        workers = self._validate_workers(n_workers)
         cfg = {
-            "dask": {"local": True, "n_workers": n_workers},
+            "dask": {"local": True, "n_workers": workers},
             "csv_source_path": csv_source_path,
             "csv_file_pattern": csv_file_pattern,
             "parquet_destination_path": parquet_destination_path,
@@ -172,8 +188,9 @@ class StreamlitOrchestrator(BaseDataApp):
         n_workers: int,
     ) -> str:
         """ A Streamlit specific method to run the topology ingestor with config parameters from the UI."""
+        workers = self._validate_workers(n_workers)
         cfg = {
-            "dask": {"local": True, "n_workers": n_workers},
+            "dask": {"local": True, "n_workers": workers},
             "topology_source_path": topology_source_path,
             "sm_cab_source_path": sm_cab_source_path,
             "override": override,
@@ -192,6 +209,8 @@ class StreamlitOrchestrator(BaseDataApp):
         n_workers: int,
     ) -> dict:
         """ A Streamlit specific method to run the SM classifier with config parameters from the UI."""
+        workers = self._validate_workers(n_workers)
+        normalized_sm_ids = self._normalize_sm_ids(sm_ids)
         final_run_name = run_name
         if overwrite_existing_results:
             final_run_name = f"{run_name}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
@@ -199,10 +218,10 @@ class StreamlitOrchestrator(BaseDataApp):
         cfg = {
             "Name": "sm_classifier_config_streamlit",
             "use_dask": True,
-            "dask": {"local": True, "n_workers": n_workers},
+            "dask": {"local": True, "n_workers": workers},
             "run_name": final_run_name,
-            "data_dir_path": self.config.get("data_dir_path", "phase_measurements/raw"),
-            "sm_ids": sm_ids,
+            "data_dir_path": self.data_dir_path,
+            "sm_ids": normalized_sm_ids,
             "topology_processing_level": "raw",
             "overwrite_existing_raw_sm_datasets": False,
             "overwrite_topology_info": False,
@@ -265,9 +284,11 @@ class StreamlitOrchestrator(BaseDataApp):
         progress_callback=None,
     ) -> dict:
         """ A Streamlit specific method to run the stat labeler with config parameters from the UI."""
+        workers = self._validate_workers(n_workers)
+        normalized_sm_ids = self._normalize_sm_ids(sm_ids)
         cfg = {
-            "dask": {"local": True, "n_workers": n_workers},
-            "sm_ids": sm_ids,
+            "dask": {"local": True, "n_workers": workers},
+            "sm_ids": normalized_sm_ids,
             "overwrite_existing_results": overwrite_existing_results,
             "filter_data": filter_data,
             "process_only_sm_with_hp": process_only_sm_with_hp,
@@ -275,7 +296,7 @@ class StreamlitOrchestrator(BaseDataApp):
             "use_ANOVA": use_anova,
             "save_plots": False,
             "save_meta_results": save_meta_results,
-            "data_dir_path": "phase_measurements/raw",
+            "data_dir_path": self.data_dir_path,
             "thresholds": thresholds,
             "results_dir": "s3://3phi/stat_labeler",
             "weather_file": "s3://3phi/stat_labeler/data/weather_data.csv",
@@ -287,15 +308,9 @@ class StreamlitOrchestrator(BaseDataApp):
             return app.stat_label_sm() or {}
 
 
-@st.cache_resource
-def get_orchestrator(data_dir_path: str) -> StreamlitOrchestrator:
-    """ Initialize a shared StreamlitOrchestrator instance for running data apps with UI-configured parameters."""
-    cfg = {
-        "dask": {"local": True, "n_workers": 2},
-        "data_dir_path": data_dir_path,
-        "result_name": "streamlit_orchestrator",
-    }
-    return StreamlitOrchestrator(config=cfg)
+def create_orchestrator(data_dir_path: str) -> StreamlitOrchestrator:
+    """Create a short-lived orchestrator to avoid leaking app runtime state across reruns."""
+    return StreamlitOrchestrator(data_dir_path=data_dir_path)
 
 
 @st.cache_resource
@@ -374,7 +389,7 @@ def _days_since(value) -> int | None:
         return None
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=300)
 def _get_meter_ids_with_data_quality() -> list[str]:
     """Return meter IDs where data_quality is available."""
     session = threephi_db.new_session()
@@ -389,7 +404,7 @@ def _get_meter_ids_with_data_quality() -> list[str]:
         session.close()
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=300)
 def _get_meter_ids_with_timeseries() -> list[str]:
     """Return meter IDs that have timeseries rows available."""
     session = threephi_db.new_session()
@@ -400,7 +415,7 @@ def _get_meter_ids_with_timeseries() -> list[str]:
         session.close()
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=300)
 def _get_sm_classifier_db_snapshot(limit: int = 5000) -> pd.DataFrame:
     """Load existing SM classifier results persisted to meter metadata."""
     session = threephi_db.new_session()
@@ -1349,45 +1364,138 @@ def _get_latest_timeseries_update() -> str:
 
 
 @st.cache_data(show_spinner=False)
-def _get_topology_inventory_overview() -> dict:
-    """Aggregate topology asset and active graph stats from the LV schema."""
+def _get_topology_versions() -> list[dict]:
+    """Return topology versions ordered by newest first."""
     session = threephi_db.new_session()
     try:
-        current_version_row = session.execute(
-            select(TopologyVersionModel.version, TopologyVersionModel.ingested_at)
-            .where(TopologyVersionModel.is_current.is_(True))
-            .limit(1)
-        ).one_or_none()
+        rows = session.execute(
+            select(
+                TopologyVersionModel.version,
+                TopologyVersionModel.ingested_at,
+                TopologyVersionModel.is_current,
+            ).order_by(TopologyVersionModel.version.desc())
+        ).all()
+        return [
+            {
+                "version": int(row.version),
+                "ingested_at": str(row.ingested_at) if row.ingested_at else "-",
+                "is_current": bool(row.is_current),
+            }
+            for row in rows
+        ]
+    finally:
+        session.close()
 
-        current_version = current_version_row.version if current_version_row else None
-        current_ingested_at = current_version_row.ingested_at if current_version_row else None
 
-        overview = {
-            "current_topology_version": current_version,
-            "current_topology_ingested_at": str(current_ingested_at) if current_ingested_at else "-",
-            "substations": int(session.execute(select(func.count()).select_from(SecondarySubstationModel)).scalar_one() or 0),
-            "transformers": int(session.execute(select(func.count()).select_from(TransformerModel)).scalar_one() or 0),
-            "feeders": int(session.execute(select(func.count()).select_from(FeederModel)).scalar_one() or 0),
-            "cabinets": int(session.execute(select(func.count()).select_from(CabinetModel)).scalar_one() or 0),
-            "delivery_points": int(session.execute(select(func.count()).select_from(DeliveryPointModel)).scalar_one() or 0),
-            "topology_meters": int(session.execute(select(func.count()).select_from(TopologyMeterModel)).scalar_one() or 0),
-            "current_version_nodes": 0,
-            "current_version_edges": 0,
-            "current_version_cables": 0,
+@st.cache_data(show_spinner=False)
+def _get_topology_inventory_overview(version: int | None = None) -> dict:
+    """Aggregate topology inventory for a selected topology version."""
+    session = threephi_db.new_session()
+    try:
+        version_row = None
+        if version is None:
+            version_row = session.execute(
+                select(TopologyVersionModel.version, TopologyVersionModel.ingested_at, TopologyVersionModel.is_current)
+                .where(TopologyVersionModel.is_current.is_(True))
+                .limit(1)
+            ).one_or_none()
+        else:
+            version_row = session.execute(
+                select(TopologyVersionModel.version, TopologyVersionModel.ingested_at, TopologyVersionModel.is_current)
+                .where(TopologyVersionModel.version == int(version))
+                .limit(1)
+            ).one_or_none()
+
+        if version_row is None:
+            return {
+                "topology_version": None,
+                "topology_ingested_at": "-",
+                "is_current": False,
+                "substations": 0,
+                "transformers": 0,
+                "feeders": 0,
+                "cabinets": 0,
+                "delivery_points": 0,
+                "cables": 0,
+            }
+
+        selected_version = int(version_row.version)
+
+        feeder_ids_subq = (
+            select(NodeModel.feeder_id)
+            .where(
+                NodeModel.version == selected_version,
+                NodeModel.node_type == "LvFeeder",
+                NodeModel.feeder_id.is_not(None),
+            )
+            .distinct()
+            .subquery()
+        )
+        cabinet_ids_subq = (
+            select(NodeModel.cabinet_id)
+            .where(
+                NodeModel.version == selected_version,
+                NodeModel.node_type == "Cabinet",
+                NodeModel.cabinet_id.is_not(None),
+            )
+            .distinct()
+            .subquery()
+        )
+        delivery_point_ids_subq = (
+            select(NodeModel.delivery_point_id)
+            .where(
+                NodeModel.version == selected_version,
+                NodeModel.node_type == "DeliveryPoint",
+                NodeModel.delivery_point_id.is_not(None),
+            )
+            .distinct()
+            .subquery()
+        )
+
+        substations = int(
+            session.execute(
+                select(func.count(func.distinct(TransformerModel.substation_id)))
+                .select_from(FeederModel)
+                .join(TransformerModel, FeederModel.transformer_id == TransformerModel.id)
+                .join(feeder_ids_subq, FeederModel.id == feeder_ids_subq.c.feeder_id)
+            ).scalar_one()
+            or 0
+        )
+        transformers = int(
+            session.execute(
+                select(func.count(func.distinct(FeederModel.transformer_id)))
+                .select_from(FeederModel)
+                .join(feeder_ids_subq, FeederModel.id == feeder_ids_subq.c.feeder_id)
+            ).scalar_one()
+            or 0
+        )
+        feeders = int(
+            session.execute(select(func.count()).select_from(feeder_ids_subq)).scalar_one() or 0
+        )
+        cabinets = int(
+            session.execute(select(func.count()).select_from(cabinet_ids_subq)).scalar_one() or 0
+        )
+        delivery_points = int(
+            session.execute(select(func.count()).select_from(delivery_point_ids_subq)).scalar_one() or 0
+        )
+        cables = int(
+            session.execute(
+                select(func.count(func.distinct(CableModel.cable_id))).where(CableModel.version == selected_version)
+            ).scalar_one()
+            or 0
+        )
+
+        return {
+            "topology_version": selected_version,
+            "topology_ingested_at": str(version_row.ingested_at) if version_row.ingested_at else "-",
+            "is_current": bool(version_row.is_current),
+            "substations": substations,
+            "transformers": transformers,
+            "feeders": feeders,
+            "cabinets": cabinets,
+            "delivery_points": delivery_points,
+            "cables": cables,
         }
-
-        if current_version is not None:
-            overview["current_version_nodes"] = int(
-                session.execute(select(func.count()).select_from(NodeModel).where(NodeModel.version == current_version)).scalar_one() or 0
-            )
-            overview["current_version_edges"] = int(
-                session.execute(select(func.count()).select_from(EdgeModel).where(EdgeModel.version == current_version)).scalar_one() or 0
-            )
-            overview["current_version_cables"] = int(
-                session.execute(select(func.count()).select_from(CableModel).where(CableModel.version == current_version)).scalar_one() or 0
-            )
-
-        return overview
     finally:
         session.close()
 
@@ -1506,6 +1614,147 @@ def _summarize_topology_connections(topo_pdf: pd.DataFrame) -> tuple[pd.DataFram
         )
 
     return component_counts_df, connection_type_df
+
+
+def _format_connection_types_for_plot(connection_type_df: pd.DataFrame) -> pd.DataFrame:
+    """Format connection type summary for chart-friendly display."""
+    if connection_type_df is None or connection_type_df.empty:
+        return pd.DataFrame(columns=["connection_type", "connections"])
+
+    plot_df = connection_type_df.copy()
+    plot_df["connection_type"] = (
+        plot_df["source_type"].astype(str) + " -> " + plot_df["target_type"].astype(str)
+    )
+    return plot_df[["connection_type", "connections"]].sort_values("connections", ascending=False)
+
+
+def _build_connected_vs_unconnected_df(component_df: pd.DataFrame, topology_inventory: dict) -> pd.DataFrame:
+    """Compare connected components in export against inventory totals by category."""
+    if component_df is None or component_df.empty or not topology_inventory:
+        return pd.DataFrame(columns=["category", "Connected", "Not connected"])
+
+    component_map = {
+        "SecondarySubstation": "substations",
+        "Transformer": "transformers",
+        "LvFeeder": "feeders",
+        "Cabinet": "cabinets",
+        "DeliveryPoint": "delivery_points",
+    }
+    display_map = {
+        "SecondarySubstation": "Substations",
+        "Transformer": "Transformers",
+        "LvFeeder": "Feeders",
+        "Cabinet": "Cabinets",
+        "DeliveryPoint": "Delivery points",
+    }
+
+    connected_counts = {
+        row.component_type: int(row.count)
+        for row in component_df.itertuples(index=False)
+        if getattr(row, "component_type", None) in component_map
+    }
+
+    rows: list[dict] = []
+    for component_type, inventory_key in component_map.items():
+        total_count = int(topology_inventory.get(inventory_key, 0) or 0)
+        connected_count = int(connected_counts.get(component_type, 0) or 0)
+        rows.append(
+            {
+                "category": display_map[component_type],
+                "Connected": min(connected_count, total_count),
+                "Not connected": max(total_count - connected_count, 0),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def _format_overlay_preview_for_display(overlay_preview_df: pd.DataFrame) -> pd.DataFrame:
+    """Rename and format overlay columns for readability."""
+    if overlay_preview_df is None or overlay_preview_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "Node type",
+                "Node label",
+                "Total meters",
+                "Meters with time-series",
+                "Meters with data quality",
+            ]
+        )
+
+    display_df = overlay_preview_df.rename(
+        columns={
+            "node_type": "Node type",
+            "node_label": "Node label",
+            "total_meters": "Total meters",
+            "meters_with_timeseries": "Meters with time-series",
+            "meters_with_data_quality": "Meters with data quality",
+        }
+    ).copy()
+    return display_df[
+        [
+            "Node type",
+            "Node label",
+            "Total meters",
+            "Meters with time-series",
+            "Meters with data quality",
+        ]
+    ]
+
+
+def _format_meter_preview_for_display(meter_preview_df: pd.DataFrame) -> pd.DataFrame:
+    """Format meter inventory preview table with human-readable column names."""
+    if meter_preview_df is None or meter_preview_df.empty:
+        return pd.DataFrame()
+
+    display_df = meter_preview_df.rename(
+        columns={
+            "meter_id": "Meter ID",
+            "total_rows": "Total rows",
+            "first_seen": "First seen",
+            "last_seen": "Last seen",
+            "has_data_quality": "Has data quality",
+            "has_data_statistics": "Has data statistics",
+            "has_connectivity": "Has connectivity",
+        }
+    ).copy()
+
+    for bool_col in ["Has data quality", "Has data statistics", "Has connectivity"]:
+        if bool_col in display_df.columns:
+            display_df[bool_col] = display_df[bool_col].map(lambda value: "Yes" if bool(value) else "No")
+
+    ordered_columns = [
+        "Meter ID",
+        "Total rows",
+        "First seen",
+        "Last seen",
+        "Has data quality",
+        "Has data statistics",
+        "Has connectivity",
+    ]
+
+
+def _drilldown_no_data_guidance(entity: str, profile: str, topology_level: str) -> list[str]:
+    """Return practical next steps when drilldown selection yields no rows."""
+    guidance: list[str] = []
+
+    if entity == "meter" and profile == "raw_profiles":
+        guidance.append("Disable 'Load existing only (meter/raw)' to extract raw profiles on demand.")
+        guidance.append("Try another meter ID that appears in 'Meter inventory preview'.")
+    elif entity == "meter":
+        guidance.append("Try profile 'raw_profiles' first, then compare with cleaned profiles.")
+        guidance.append("Verify the meter has data rows and timestamp coverage in the preview table.")
+    else:
+        guidance.append("Try a broader entity first (e.g., feeder or transformer) to validate data availability.")
+        guidance.append("Switch topology level between raw/cleaned/cleaned_and_corrected.")
+        if profile != "raw_profiles":
+            guidance.append("If cleaned profiles are empty, retry with profile 'raw_profiles'.")
+
+    if topology_level == "cleaned_and_corrected":
+        guidance.append("If no rows are returned, retry with topology level 'cleaned' or 'raw'.")
+
+    return guidance
+    return display_df[ordered_columns]
 
 
 def _filter_topology_by_scope(topology_df: pd.DataFrame, scope_type: str, scope_value: str) -> pd.DataFrame:
@@ -2350,61 +2599,54 @@ def _render_data_explorer(data_dir_path: str) -> None:
 
     with st.sidebar:
         st.markdown("### Data Explorer Config")
-        preview_limit = st.number_input(
-            "Meter preview rows",
-            min_value=100,
-            max_value=10000,
-            value=2000,
-            step=100,
-            key="explorer_preview_limit",
-        )
-        min_total_rows = st.number_input(
-            "Min total_rows filter",
-            min_value=0,
-            max_value=100000000,
-            value=1,
-            step=100,
-            key="explorer_min_rows",
-        )
-        only_with_data_quality = st.checkbox(
-            "Only show meters with data_quality",
-            value=True,
-            key="explorer_only_dq",
-        )
         if st.button("Refresh Availability", key="explorer_refresh"):
             st.cache_data.clear()
             st.success("Availability cache refreshed.")
 
+    topology_versions = _get_topology_versions()
+    current_topology_version = next((row["version"] for row in topology_versions if row.get("is_current")), None)
+    selected_topology_version = None
+    if topology_versions:
+        version_options = [row["version"] for row in topology_versions]
+        selected_index = 0
+        if current_topology_version in version_options:
+            selected_index = version_options.index(current_topology_version)
+        selected_topology_version = st.selectbox(
+            "Topology version",
+            options=version_options,
+            index=selected_index,
+            format_func=lambda value: f"{value} " if value == current_topology_version else str(value),
+            key="explorer_topology_version",
+        )
+
     try:
         with st.spinner("Loading dataset inventory from database and raw parquet..."):
             db_overview = _get_meter_inventory_overview()
-            topology_overview = _get_topology_inventory_overview()
-            parquet_overview, parquet_by_date_df, parquet_by_shard_df = _get_raw_parquet_inventory(data_dir_path)
-            meter_preview_df = _get_meter_inventory_preview(limit=int(preview_limit))
+            topology_overview = _get_topology_inventory_overview(selected_topology_version)
+            parquet_overview, parquet_by_date_df, _ = _get_raw_parquet_inventory(data_dir_path)
             latest_timeseries_update = _get_latest_timeseries_update()
-            topology_plot_df, topology_component_df, topology_connection_df = _get_topology_connection_view()
+            topology_plot_df, _, _ = _get_topology_connection_view()
             feeder_overlay_df, cabinet_overlay_df = _get_topology_meter_overlay()
+            current_topology_inventory = _get_topology_inventory_overview(current_topology_version)
 
         latest_db_update_days = _days_since(db_overview["latest_db_update"])
         latest_timeseries_days = _days_since(latest_timeseries_update)
-        latest_topology_days = _days_since(topology_overview["current_topology_ingested_at"])
+        latest_topology_days = _days_since(topology_overview["topology_ingested_at"])
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Meters in database", db_overview["total_meters"])
-        c2.metric("Meters with rows", db_overview["meters_with_rows"])
-        c3.metric("Meters with data_quality", db_overview["meters_with_data_quality"])
-        c4.metric("Raw parquet files", parquet_overview["parquet_files"])
-
-        c5, c6, c7, c8 = st.columns(4)
-        c5.metric("Meters with data_statistics", db_overview["meters_with_data_statistics"])
-        c6.metric("Meters with connectivity", db_overview["meters_with_connectivity"])
-        c7.metric(
+        overview_cols = st.columns(8)
+        overview_cols[0].metric("Meters in database", db_overview["total_meters"])
+        overview_cols[1].metric("Meters with rows", db_overview["meters_with_rows"])
+        overview_cols[2].metric("Meters with data_quality", db_overview["meters_with_data_quality"])
+        overview_cols[3].metric("Meters with data_statistics", db_overview["meters_with_data_statistics"])
+        overview_cols[4].metric("Meters with connectivity", db_overview["meters_with_connectivity"])
+        overview_cols[5].metric("Raw parquet files", parquet_overview["parquet_files"])
+        overview_cols[6].metric(
             "Days since latest database update",
             latest_db_update_days if latest_db_update_days is not None else "-",
         )
-        c8.metric(
-            "Days since current topology ingest",
-            latest_topology_days if latest_topology_days is not None else "-",
+        overview_cols[7].metric(
+            "Days since latest timeseries update",
+            latest_timeseries_days if latest_timeseries_days is not None else "-",
         )
 
 
@@ -2429,28 +2671,35 @@ def _render_data_explorer(data_dir_path: str) -> None:
                 "Latest timeseries update": latest_timeseries_update,
                 "Raw parquet min date": parquet_overview["min_date"],
                 "Raw parquet max date": parquet_overview["max_date"],
-                "Current topology ingest": topology_overview["current_topology_ingested_at"],
+                "Selected topology version": topology_overview["topology_version"],
+                "Selected topology ingest": topology_overview["topology_ingested_at"],
             }
         )
 
         st.markdown("**LV topology inventory**")
-        topo_c1, topo_c2, topo_c3, topo_c4 = st.columns(4)
-        topo_c1.metric("Current topology version", topology_overview["current_topology_version"] or "-")
-        topo_c2.metric("Substations", topology_overview["substations"])
-        topo_c3.metric("Transformers", topology_overview["transformers"])
-        topo_c4.metric("Feeders", topology_overview["feeders"])
-
-        topo_c5, topo_c6, topo_c7, topo_c8 = st.columns(4)
-        topo_c5.metric("Cabinets", topology_overview["cabinets"])
-        topo_c6.metric("Delivery points", topology_overview["delivery_points"])
-        topo_c7.metric("Topology meters", topology_overview["topology_meters"])
-        topo_c8.metric("Current version nodes", topology_overview["current_version_nodes"])
-
-        topo_c9, topo_c10 = st.columns(2)
-        topo_c9.metric("Current version edges", topology_overview["current_version_edges"])
-        topo_c10.metric("Current version cables", topology_overview["current_version_cables"])
+        topo_cols = st.columns(7)
+        topo_cols[0].metric("Topology version", topology_overview["topology_version"] or "-")
+        topo_cols[1].metric("Substations", topology_overview["substations"])
+        topo_cols[2].metric("Transformers", topology_overview["transformers"])
+        topo_cols[3].metric("Feeders", topology_overview["feeders"])
+        topo_cols[4].metric("Cabinets", topology_overview["cabinets"])
+        topo_cols[5].metric("Delivery points", topology_overview["delivery_points"])
+        topo_cols[6].metric("Cables", topology_overview["cables"])
+        st.caption(
+            "Selected topology ingest age: "
+            + (f"{latest_topology_days} days" if latest_topology_days is not None else "-")
+        )
 
         st.markdown("**Topology connection overview**")
+        if (
+            selected_topology_version is not None
+            and current_topology_version is not None
+            and int(selected_topology_version) != int(current_topology_version)
+        ):
+            st.info(
+                f"Connection charts below use exported topology for current version {current_topology_version}. "
+                f"Inventory metrics above are shown for selected version {selected_topology_version}."
+            )
         if topology_plot_df.empty:
             st.info("No current topology export available for connection plots.")
         else:
@@ -2479,6 +2728,7 @@ def _render_data_explorer(data_dir_path: str) -> None:
 
             scoped_topology_df = _filter_topology_by_scope(topology_plot_df, scope_type, scope_value)
             scoped_component_df, scoped_connection_df = _summarize_topology_connections(scoped_topology_df)
+            scoped_connection_plot_df = _format_connection_types_for_plot(scoped_connection_df)
             scoped_feeder_overlay_df = _filter_overlay_by_scope(feeder_overlay_df, scoped_topology_df, "feeder")
             scoped_cabinet_overlay_df = _filter_overlay_by_scope(cabinet_overlay_df, scoped_topology_df, "cabinet")
 
@@ -2487,11 +2737,18 @@ def _render_data_explorer(data_dir_path: str) -> None:
                 if not scoped_component_df.empty:
                     st.markdown("**Components represented in exported topology**")
                     st.bar_chart(scoped_component_df.set_index("component_type"))
-                    st.dataframe(scoped_component_df, use_container_width=True)
             with top_c2:
-                if not scoped_connection_df.empty:
+                if not scoped_connection_plot_df.empty:
                     st.markdown("**Connection types between nodes**")
-                    st.dataframe(scoped_connection_df, use_container_width=True)
+                    st.bar_chart(scoped_connection_plot_df.set_index("connection_type"))
+
+            connected_balance_df = _build_connected_vs_unconnected_df(
+                scoped_component_df,
+                current_topology_inventory,
+            )
+            if not connected_balance_df.empty:
+                st.markdown("**Not connected components**")
+                st.bar_chart(connected_balance_df.set_index("category")[["Not connected"]])
 
             st.caption(
                 f"Graph scope: {scope_type}" + ("" if scope_value == "All" else f" | selection: {scope_value}")
@@ -2505,7 +2762,7 @@ def _render_data_explorer(data_dir_path: str) -> None:
             )
             if not overlay_preview_df.empty:
                 st.markdown("**Meter availability overlay for scoped nodes**")
-                st.dataframe(overlay_preview_df, use_container_width=True)
+                st.dataframe(_format_overlay_preview_for_display(overlay_preview_df), use_container_width=True)
             graph_max_edges = st.slider(
                 "Max topology graph edges",
                 min_value=10,
@@ -2514,6 +2771,20 @@ def _render_data_explorer(data_dir_path: str) -> None:
                 step=10,
                 key="explorer_topology_graph_edges",
             )
+            with st.expander("Topology plot legend and notes", expanded=False):
+                st.caption("Open for extra context about charts and graph rendering.")
+                st.write(
+                    {
+                        "Scope behavior": "All topology plots and graph follow the selected scope and scope selection.",
+                        
+                        
+                        "Max topology graph edges": "Caps rendered edges for readability; lower values show a smaller subgraph.",
+                        "Base node colors": "LvFeeder=Green, Cabinet=Blue, DeliveryPoint=Orange, SecondarySubstation=Purple, Transformer=Brown, Other=Gray.",
+                        "Availability color override": "LvFeeder/Cabinet are recolored by time-series availability when overlay exists: Red<50%, Amber 50-79%, Green>=80%, Gray=unknown.",
+                        "Edge styles": "Dashed arrows show hierarchy links (Substation->Transformer, Transformer->Feeder, and feeder attachment to node1). Solid arrows show topology link node1->node2.",
+                        "Dotted edges": "Not used in current renderer.",
+                    }
+                )
             dot_graph = _build_topology_graphviz(
                 scoped_topology_df,
                 feeder_overlay_df=scoped_feeder_overlay_df,
@@ -2526,37 +2797,14 @@ def _render_data_explorer(data_dir_path: str) -> None:
                 st.warning(f"Topology graph rendering is not available in this environment: {exc}")
                 st.code(dot_graph, language="dot")
 
-        if not meter_preview_df.empty:
-            filtered_preview_df = meter_preview_df.copy()
-            filtered_preview_df = filtered_preview_df[
-                filtered_preview_df["total_rows"].fillna(0).astype(int) >= int(min_total_rows)
-            ]
-            if only_with_data_quality:
-                filtered_preview_df = filtered_preview_df[filtered_preview_df["has_data_quality"] == True]
-
-            st.markdown("**Meter inventory preview**")
-            st.dataframe(filtered_preview_df, use_container_width=True)
-        else:
-            st.info("No meter metadata found in the database.")
-
-        st.markdown("**Raw parquet inventory by date**")
+        st.markdown("**Raw parquet inventory trend by date**")
         if parquet_by_date_df.empty:
             st.info("No parquet files found in the selected data directory.")
         else:
-            st.bar_chart(parquet_by_date_df.set_index("date"))
-            st.dataframe(parquet_by_date_df, use_container_width=True)
-
-        st.markdown("**Raw parquet inventory by shard**")
-        if parquet_by_shard_df.empty:
-            st.info("No shard partition information found.")
-        else:
-            st.dataframe(parquet_by_shard_df, use_container_width=True)
-
-        with st.expander("Sample raw parquet paths", expanded=False):
-            if parquet_overview["sample_paths"]:
-                st.code("\n".join(parquet_overview["sample_paths"]), language="text")
-            else:
-                st.info("No parquet sample paths available.")
+            parquet_date_plot_df = parquet_by_date_df.copy()
+            parquet_date_plot_df["date"] = pd.to_datetime(parquet_date_plot_df["date"], errors="coerce")
+            parquet_date_plot_df = parquet_date_plot_df.dropna(subset=["date"]).sort_values("date")
+            st.line_chart(parquet_date_plot_df.set_index("date")["parquet_files"])
 
     except Exception as exc:
         st.error(f"Failed to load dataset availability overview: {exc}")
@@ -2577,16 +2825,31 @@ def _render_data_explorer(data_dir_path: str) -> None:
             index=0,
             key="explorer_profile",
         )
+        profile_label_map = {
+            "raw_profiles": "Raw",
+            "cleaned_profiles": "Cleaned",
+            "cleaned_and_phase_corrected_profiles": "Cleaned + phase corrected",
+        }
         topology_level = st.selectbox(
             "Topology level",
             ["raw", "cleaned", "cleaned_and_corrected"],
             index=0,
             key="explorer_topology",
+            disabled=(entity == "meter"),
+        )
+        if entity == "meter":
+            st.caption("Topology level applies to aggregated entities only (cabinet/feeder/transformer/substation/zip).")
+        st.caption(
+            f"Selected profile: {profile_label_map.get(profile, profile)}"
+            + (" (meter-specific loading)" if entity == "meter" else " (used with selected topology level)")
         )
         add_current = st.checkbox("Add current", value=False, key="explorer_add_current")
         add_unbalance = st.checkbox("Add unbalance", value=False, key="explorer_add_unbalance")
         load_existing_only = st.checkbox(
-            "Load existing only (meter/raw)", value=True, key="explorer_load_existing_only"
+            "Load existing only (meter/raw)",
+            value=True,
+            key="explorer_load_existing_only",
+            disabled=not (entity == "meter" and profile == "raw_profiles"),
         )
 
         if st.button("Load Drilldown Plot", type="primary", key="explorer_load_button"):
@@ -2605,6 +2868,8 @@ def _render_data_explorer(data_dir_path: str) -> None:
 
                 if df is None or df.empty:
                     st.warning("No data returned for this selection.")
+                    for hint in _drilldown_no_data_guidance(entity, profile, topology_level):
+                        st.caption(f"Tip: {hint}")
                 else:
                     plot_df = df.copy()
                     if not isinstance(plot_df.index, pd.DatetimeIndex):
@@ -2613,6 +2878,9 @@ def _render_data_explorer(data_dir_path: str) -> None:
                                 plot_df[candidate] = pd.to_datetime(plot_df[candidate], utc=True, errors="coerce")
                                 plot_df = plot_df.set_index(candidate)
                                 break
+
+                    if isinstance(plot_df.index, pd.DatetimeIndex):
+                        plot_df = plot_df.sort_index()
 
                     st.success(f"Loaded {plot_df.shape[0]} rows and {plot_df.shape[1]} columns.")
                     numeric_cols = plot_df.select_dtypes(include=["number"]).columns.tolist()
@@ -2759,9 +3027,7 @@ def _render_sm_classifier(orchestrator: StreamlitOrchestrator, data_dir_path: st
                 f"(requested {requested_count}, available {len(available_sm_ids)}, seed {int(classifier_seed)})."
             )
             with st.spinner("Running SM classifier..."):
-                get_orchestrator.clear()
-                fresh_orchestrator = get_orchestrator(data_dir_path=data_dir_path)
-                result = fresh_orchestrator.run_sm_classifier(
+                result = orchestrator.run_sm_classifier(
                     run_name=classifier_run_name,
                     sm_ids=sm_ids,
                     overwrite_existing_results=classifier_overwrite,
@@ -3049,7 +3315,7 @@ def main() -> None:
         data_dir_path = st.text_input("Data dir path", value=default_data_dir, key="shared_data_dir")
 
     if app_choice in {"Timeseries Ingestor", "Topology Ingestor", "SM Classifier", "Stat Labeler"}:
-        orchestrator = get_orchestrator(data_dir_path=data_dir_path)
+        orchestrator = create_orchestrator(data_dir_path=data_dir_path)
     else:
         orchestrator = None
 
