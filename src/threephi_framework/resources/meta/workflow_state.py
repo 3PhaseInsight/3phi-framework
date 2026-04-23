@@ -1,4 +1,4 @@
-from sqlalchemy import select, update
+from sqlalchemy import insert, select, update
 from sqlalchemy.orm import Session
 
 from threephi_framework.models.meta.workflow_state import WorkflowStateModel
@@ -14,12 +14,13 @@ class WorkflowStateResource(BaseResource):
         return self.s.execute(stmt).scalar_one_or_none()
 
     def get_or_create(self, workflow: str, description: str | None = None) -> WorkflowStateModel:
-        obj = self.get(workflow)
-        if obj is None:
-            obj = WorkflowStateModel(workflow=workflow, completed=False, description=description)
-            self.s.add(obj)
-            self.s.flush()
-        return obj
+        stmt = (
+            insert(WorkflowStateModel)
+            .values(workflow=workflow, completed=False, description=description)
+            .on_conflict_do_nothing(index_elements=[WorkflowStateModel.workflow])
+        )
+        self.s.execute(stmt)
+        return self.get(workflow)
 
     def mark_completed(self, workflow: str) -> None:
         stmt = update(WorkflowStateModel).where(WorkflowStateModel.workflow == workflow).values(completed=True)
