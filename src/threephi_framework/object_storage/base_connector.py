@@ -207,15 +207,16 @@ class BaseConnector(ABC):
         pass
 
     @abstractmethod
-    def get_meter_data(self, meter_ids: list[str], dataset_root_path: str) -> dd.DataFrame:
+    def get_meter_data(self, meter_ids: list[str], dataset_root_path: str | None = None) -> dd.DataFrame:
         """
         Get data for a list of meters.
 
         Args:
             meter_ids (list[str]):
                 Meter ID string, e.g. "100025".
-            dataset_root_path (str):
-                Root path of the dataset, e.g. "s3://bucket/prefix".
+            dataset_root_path (str | None):
+                Root path of the dataset, e.g. "s3://bucket/prefix". If None, implementations
+                may fall back to a path configured at construction time.
 
         Returns:
             dd.DataFrame:

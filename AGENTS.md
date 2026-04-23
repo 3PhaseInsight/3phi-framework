@@ -10,12 +10,13 @@ Quick-reference for AI agents working in this repository. Read this before explo
 
 ```
 src/threephi_framework/
-├── __init__.py                   # Public API (S3Connector, DBConnector, BaseDataApp, controllers, data apps)
+├── __init__.py                   # Public API (S3Connector, AzureBlobConnector, DBConnector, BaseDataApp, SMClassifier, controllers, data apps)
 ├── db/db.py                      # SQLAlchemy engine + new_session() factory
 ├── db_connector.py               # DBConnector: transactional session wrapper
 ├── object_storage/
 │   ├── base_connector.py         # Abstract storage interface
-│   └── s3_connector.py           # MinIO/S3 impl (s3fs + Dask storage options)
+│   ├── s3_connector.py           # MinIO/S3 impl (s3fs + Dask storage options)
+│   └── azure_blob_connector.py   # Azure Blob Storage impl (adlfs)
 ├── models/
 │   ├── base.py                   # BaseModel (DeclarativeBase)
 │   ├── topology/lv_schema_mixin.py   # Sets schema="lv" for topology tables
@@ -85,9 +86,14 @@ Context manager. Always use as `with MyApp(config) as app: app.run()`.
 - `ingest(topology_ddf, sm_cab_ddf)`: full ingestion pipeline with staging, sanity checks, and atomic version flip via `flip_current_to(version)`
 - `TopologyVersion` with `is_current` flag enables reproducible historical queries
 
-### S3Connector (`object_storage/s3_connector.py`)
-- Wraps s3fs; provides Dask-compatible storage options
-- Parquet reads/writes partitioned by shard (meter_id → `util.v1_get_shard_for_meter_id()` → 3 shards)
+### Storage connectors (`object_storage/`)
+`BaseConnector` defines the full interface. Two implementations ship out of the box:
+- `S3Connector` — wraps s3fs; targets MinIO/S3; bucket hardcoded to `3phi`
+- `AzureBlobConnector` — wraps adlfs; targets Azure Blob Storage; falls back to `DefaultAzureCredential` when no account key is set
+
+Both use the same Parquet sharding scheme: meter_id → `util.v1_get_shard_for_meter_id()` → 3 shards.
+
+`TimeSeriesController` accepts any `BaseConnector` — swap the implementation without changing application code. `get_meter_data(meter_ids, dataset_root_path=None)` accepts an optional path override; if omitted, falls back to the path set at construction time.
 
 ### Config dict shape
 
@@ -136,9 +142,17 @@ All live in the `lv` DB schema. Meter metadata (JSONB columns `data_quality`, `d
 All connection settings come from `.env` (not committed):
 
 ```bash
+# S3 / MinIO
 S3_ENDPOINT_URL=http://localhost:19000
 S3_ACCESS_KEY=minioadmin
 S3_SECRET_KEY=minioadmin
+
+# Azure Blob Storage (alternative to S3)
+AZURE_STORAGE_ACCOUNT_NAME=myaccount
+AZURE_STORAGE_CONTAINER_NAME=3phi
+AZURE_STORAGE_ACCOUNT_KEY=           # optional — omit to use DefaultAzureCredential
+
+# Database
 DB_TYPE=POSTGRES
 DB_USER=postgres
 DB_PASSWORD=password

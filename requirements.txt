@@ -1,6 +1,8 @@
 # dependencies for local testing, pip install in .venv
+pandas
 pyarrow
 s3fs
+adlfs
 dask[distributed]
 psycopg2
 bokeh
