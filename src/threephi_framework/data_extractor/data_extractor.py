@@ -11,12 +11,14 @@ import numpy as np
 import pandas as pd
 from dask import compute, delayed
 
+import threephi_framework.db.db as threephi_db
+from threephi_framework.controllers.ingestion import IngestionController
+from threephi_framework.controllers.meta import MetaController
 from threephi_framework.data_extractor.schemas.phase_measurements.v1 import (
     VERSION,
     PhaseMeasurementsCsvSchema,
     PhaseMeasurementsParquetSchema,
 )
-from threephi_framework.db_connector import DBConnector
 from threephi_framework.object_storage.s3_connector import S3Connector
 from threephi_framework.util.util import v1_get_shard_for_meter_id
 
@@ -42,12 +44,11 @@ class DataExtractor:
         # Others
         # s3 extractor
         self.s3_connector = S3Connector(data_dir_path="phase_measurements/raw")
-        self.db_connector = DBConnector()
+        self.meta_controller = MetaController(threephi_db.new_session)
+        self.ingestion_controller = IngestionController(threephi_db.new_session)
         self.s3_base = "s3://3phi"
         self.sourcedata_dir = f"{self.s3_base}/{SOURCE_DATA_DIR}"
         self.processed_data_dir = f"{self.s3_base}/{PROCESSED_DATA_DIR}"
-
-        self.db_connector.check_db_connection()
 
         # check that s3 destination exists
         self.processed_data_dir = f"{self.s3_base}/{PROCESSED_DATA_DIR}"
@@ -209,7 +210,7 @@ class DataExtractor:
             # ---------------------------------
             # Create batch row for file
             # ---------------------------------
-            batch_id = self.db_connector.insert_batch(csv_path, run_id)
+            batch_id = self.ingestion_controller.insert_batch(csv_path, run_id)
 
             # ---------------------------------
             # Read in CSV,
@@ -231,8 +232,8 @@ class DataExtractor:
             # Get stats for meter inventory table
             # ---------------------------------
             stats_workflow = f"{csv_path}_stats"
-            if not self.db_connector.is_workflow_completed(stats_workflow):
-                self.db_connector.start_workflow(stats_workflow)
+            if not self.meta_controller.is_workflow_completed(stats_workflow):
+                self.meta_controller.start_workflow(stats_workflow)
 
                 logger.info("Computing meter inventory stats.")
                 stats_ddf = dask_df[[parquet_meter_col, parquet_ts_col]]
@@ -241,8 +242,8 @@ class DataExtractor:
                 agg_pdf = agg_ddf.compute()
                 agg_pdf = agg_pdf.rename(columns={"min": "first_seen", "max": "last_seen", "count": "total_rows"})
                 agg_pdf = agg_pdf.reset_index(names=["id"])
-                self.db_connector.upsert_meter_stats(agg_pdf)
-                self.db_connector.complete_workflow(stats_workflow)
+                self.meta_controller.upsert_meter_stats(agg_pdf)
+                self.meta_controller.complete_workflow(stats_workflow)
                 logger.info("Successfully computed and stored stats.")
 
             # ---------------------------------
@@ -314,14 +315,14 @@ class DataExtractor:
             for (dt_str, shard), files in files_grouped_by_ring.items():
                 logger.info(f"Processing ring: {dt_str}, {shard}")
                 files.sort()
-                seq = self.db_connector.get_current_max_seq_for_ring(dt_str, shard)
+                seq = self.ingestion_controller.get_current_max_seq_for_ring(dt_str, shard)
 
                 for file in files:
                     seq += 1
                     file_stats = self.s3_connector.get_parquet_file_stats(file, dask_df, parquet_ts_col)
                     # prepare the s3 key for the "ready" file
                     ready_key = file.replace(f"/staging/run={run_id}/", "/")
-                    self.db_connector.upsert_file_index(
+                    self.ingestion_controller.upsert_file_index(
                         s3_key=ready_key,
                         dt=dt_str,
                         shard=shard,
@@ -343,7 +344,7 @@ class DataExtractor:
 
             logger.info(f"Promoting batch from stg {staging_path} to ready {ready_path} ...")
             self.s3_connector.promote_staged_to_ready(staging_path, bucket_dest_path)
-            self.db_connector.promote_batch_to_ready(batch_id=batch_id)
+            self.ingestion_controller.promote_batch_to_ready(batch_id=batch_id)
             logger.info(f"Processed {csv_path} as batch {batch_id}.")
 
         logger.info("Ingestion complete.")
@@ -357,7 +358,7 @@ class DataExtractor:
             - max_timestamp: last SM measurement timestamp
             - id_list_of_sms_with_data: list of meter IDS that we have data for
         """
-        return self.db_connector.get_timeseries_info()
+        return self.meta_controller.get_time_series_meta_info()
 
     def v1_get_single_meter_data(self, id: str) -> dd.DataFrame:
         ddf: dd.DataFrame = self.s3_connector.get_meter_data(meter_ids=[id])
@@ -371,9 +372,9 @@ class DataExtractor:
 
         # if this is executed the first time, we read data from csv and store as parquet
         workflow = "timeseries_csv_to_parquet"
-        if not self.db_connector.is_workflow_completed(workflow):
+        if not self.meta_controller.is_workflow_completed(workflow):
             self._extract_csv_to_parquet(s3_path=self.sourcedata_dir, file_pattern="phase_measurements_*.csv")
-            self.db_connector.complete_workflow(workflow)
+            self.meta_controller.complete_workflow(workflow)
 
         # if this is executed the first time, we read data from DB and store as parquet
         # workflow = "timeseries_sql_to_parquet"
@@ -517,7 +518,7 @@ class DataExtractor:
         logger.info("Getting timeseries info from DB")
         if overwrite:
             logger.warning("Parameter overwrite is deprecated, please don't use anymore.")
-        timeseries_info = self.db_connector.get_timeseries_info()
+        timeseries_info = self.meta_controller.get_time_series_meta_info()
         self.min_timestamp = timeseries_info["min_timestamp"]
         self.max_timestamp = timeseries_info["max_timestamp"]
         self.id_list_of_sms_with_data = timeseries_info["id_list_of_sms_with_data"]
@@ -589,7 +590,7 @@ class DataExtractor:
                 # Load meter and cabinet data if not already done
                 self._load_cleaned_meter_and_cabinet_data()
                 # Extract list of available meters from timeseries if not already done
-                self.db_connector.get_timeseries_info()
+                self._get_timeseries_info_db()
                 # Create local copy of meter and cabinet df
                 cleaned_meter_and_cabinet_df = self.cleaned_meter_and_cabinet_df.copy()
 
@@ -640,7 +641,7 @@ class DataExtractor:
                 # Load meter and cabinet data if not already done
                 self._load_cleaned_and_corrected_meter_and_cabinet_data()
                 # Extract list of available meters from timeseries if not already done
-                self.db_connector.get_timeseries_info()
+                self._get_timeseries_info_db()
                 # Create local copy of meter and cabinet df
                 cleaned_and_corrected_meter_and_cabinet_df = self.cleaned_and_corrected_meter_and_cabinet_df.copy()
                 # Just keep the cabinet numbers instead of the whole string

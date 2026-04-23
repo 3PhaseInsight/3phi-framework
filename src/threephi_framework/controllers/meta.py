@@ -3,11 +3,13 @@ from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
+import pandas as pd
 from sqlalchemy.orm import Session
 
 from threephi_framework.models.meta.run_result import RunResultModel
 from threephi_framework.resources.meta.meter import MetaMeterResource
 from threephi_framework.resources.meta.run_result import RunResultResource
+from threephi_framework.resources.meta.workflow_state import WorkflowStateResource
 from threephi_framework.resources.topology.assets.meter import MeterResource
 
 
@@ -470,6 +472,33 @@ class MetaController:
             edge_id=edge_id,
             cable_id=cable_id,
         )
+
+    def upsert_meter_stats(self, df: pd.DataFrame) -> None:
+        """
+        Upsert meter inventory stats into the meta meter table.
+
+        Args:
+            df (pd.DataFrame):
+                DataFrame with columns ``id``, ``first_seen``, ``last_seen``,
+                ``total_rows``. Typically the output of a per-meter aggregation
+                over an ingested time series file.
+        """
+        self.meta_meter_resource.upsert_meter_stats(df)
+
+    def is_workflow_completed(self, workflow: str) -> bool:
+        return WorkflowStateResource(self._sf()).is_completed(workflow)
+
+    def start_workflow(self, workflow: str, description: str | None = None) -> None:
+        logging.info("Starting workflow: %s", workflow)
+        s = self._sf()
+        WorkflowStateResource(s).get_or_create(workflow, description)
+        s.commit()
+
+    def complete_workflow(self, workflow: str) -> None:
+        logging.info("Completing workflow: %s", workflow)
+        s = self._sf()
+        WorkflowStateResource(s).mark_completed(workflow)
+        s.commit()
 
     def get_time_series_meta_info(self) -> dict[str, Any]:
         min_ts, max_ts, meter_ids = self.meta_meter_resource.get_timeseries_info()

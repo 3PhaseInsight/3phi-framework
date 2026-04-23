@@ -1,4 +1,6 @@
+import pandas as pd
 from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from threephi_framework.models.meta.meter import MetaMeterModel
@@ -21,6 +23,30 @@ class MetaMeterResource(BaseResource):
     def get_max_total_rows(self) -> int:
         stmt = select(func.max(MetaMeterModel.total_rows))
         return self.s.execute(stmt).scalar_one()
+
+    def upsert_meter_stats(self, df: pd.DataFrame) -> None:
+        """
+        Upsert meter inventory stats from a DataFrame with columns:
+        id, first_seen, last_seen, total_rows.
+
+        On conflict: keeps the earliest first_seen, the latest last_seen,
+        accumulates total_rows, and refreshes updated_at.
+        """
+        rows = df.to_dict(orient="records")
+        if not rows:
+            return
+        stmt = insert(MetaMeterModel).values(rows)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[MetaMeterModel.id],
+            set_={
+                "first_seen": func.least(MetaMeterModel.first_seen, stmt.excluded.first_seen),
+                "last_seen": func.greatest(MetaMeterModel.last_seen, stmt.excluded.last_seen),
+                "total_rows": MetaMeterModel.total_rows + stmt.excluded.total_rows,
+                "updated_at": func.now(),
+            },
+        )
+        self.s.execute(stmt)
+        self.s.commit()
 
     def get_timeseries_info(self) -> tuple:
         # min(first_seen), max(last_seen)

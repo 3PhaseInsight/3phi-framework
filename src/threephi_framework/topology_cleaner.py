@@ -6,8 +6,6 @@ import pandas as pd
 
 class TopologyCleaner:
     def __init__(self, path_to_topology_file, path_to_meter_cabinet_connection_file):
-        # TODO: Implement connecting and reading to/from databases;
-        # self.db_connector = DBConnector()
         # TODO: Should Dask Cluster be initiated here?
         self.topology_file_path = path_to_topology_file
         self.meter_cabinet_connection_file_path = path_to_meter_cabinet_connection_file
