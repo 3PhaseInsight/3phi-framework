@@ -42,8 +42,6 @@ class S3Connector(BaseConnector):
 
     def discover_parquet_files(self, path):
         files = [p for p in self.fs.find(path) if p.endswith(".parquet")]
-        if not files:
-            raise RuntimeError(f"No parquet files found under {path}")
         return files
 
     def copy_file(self, src: str, dst: str):
@@ -51,6 +49,9 @@ class S3Connector(BaseConnector):
 
     def promote_staged_to_ready(self, staging_root: str, ready_root: str) -> list[str]:
         staged: list[str] = self.discover_parquet_files(staging_root)
+        if not staged:
+            logging.info("Found no files to promote under %s", staging_root)
+            return []
         logging.info("Found %d file(s) to promote, e.g. %s", len(staged), staged[0])
         promoted_file_keys: list[str] = []
         rdy = ready_root.rstrip("/") + "/"
