@@ -1,4 +1,5 @@
-from sqlalchemy import insert, select, update
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from threephi_framework.models.meta.workflow_state import WorkflowStateModel
