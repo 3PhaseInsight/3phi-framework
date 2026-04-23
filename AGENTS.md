@@ -10,7 +10,7 @@ Quick-reference for AI agents working in this repository. Read this before explo
 
 ```
 src/threephi_framework/
-├── __init__.py                   # Public API (S3Connector, AzureBlobConnector, DBConnector, BaseDataApp, SMClassifier, controllers, data apps)
+├── __init__.py                   # Public API (S3Connector, AzureBlobConnector, BaseDataApp, SMClassifier, controllers, data apps)
 ├── db/db.py                      # SQLAlchemy engine + new_session() factory
 ├── object_storage/
 │   ├── base_connector.py         # Abstract storage interface
