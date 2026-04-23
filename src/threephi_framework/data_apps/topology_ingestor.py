@@ -28,12 +28,12 @@ class TopologyIngestor(BaseDataApp):
 
     def run(self):
         workflow = "topology_ingestion"
-        completed = self.data_extractor.db_connector.is_workflow_completed(workflow)
+        completed = self.meta_controller.is_workflow_completed(workflow)
         if not completed or self.override:
             topology_ddf = self.topology_controller.read_topology(self.topology_source_path)
             sm_cab_ddf = self.topology_controller.read_sm_cab(self.sm_cab_source_path)
             self.topology_controller.ingest(topology_ddf, sm_cab_ddf)
-        self.data_extractor.db_connector.complete_workflow(workflow)
+        self.meta_controller.complete_workflow(workflow)
 
 
 if __name__ == "__main__":

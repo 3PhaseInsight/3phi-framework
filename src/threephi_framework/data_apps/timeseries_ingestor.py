@@ -29,14 +29,14 @@ class TimeseriesIngestor(BaseDataApp):
 
     def run(self):
         workflow = "timeseries_csv_to_parquet_partitions"
-        completed = self.data_extractor.db_connector.is_workflow_completed(workflow)
+        completed = self.meta_controller.is_workflow_completed(workflow)
         if not completed or self.override:
             self.data_extractor.v1_csv_to_parquet_partitions(
                 csv_path="/opt/airflow/data",
                 csv_file_pattern="phase_measurements_*.csv",
                 bucket_dest_path=f"{self.data_extractor.s3_base}/{self.parquet_destination_path}",
             )
-        self.data_extractor.db_connector.complete_workflow(workflow)
+        self.meta_controller.complete_workflow(workflow)
 
 
 if __name__ == "__main__":
