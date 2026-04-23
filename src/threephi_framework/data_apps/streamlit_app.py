@@ -1,9 +1,9 @@
-import os
-import sys
 import json
 import logging
-import re
+import os
 import random
+import re
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -25,22 +25,20 @@ APP_ROOT = CURRENT_FILE.parents[3]
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from threephi_framework.data_extractor.data_extractor import DataExtractor
-from threephi_framework.object_storage.s3_connector import S3Connector
-from threephi_framework.data_apps.timeseries_ingestor import TimeseriesIngestor
-from threephi_framework.data_apps.topology_ingestor import TopologyIngestor
-from threephi_framework.data_apps.sm_classifier import SMClassifier
-from threephi_framework.data_apps.stat_labeler import StatLabeler
-from threephi_framework.controllers.topology import TopologyController
-from threephi_framework.models.meta.meter import MetaMeterModel
-from threephi_framework.models.topology.assets.cabinet import CabinetModel
-from threephi_framework.models.topology.assets.delivery_point import DeliveryPointModel
-from threephi_framework.models.topology.assets.feeder import FeederModel
-from threephi_framework.models.topology.assets.transformer import TransformerModel
-from threephi_framework.models.topology.graph.cable import CableModel
-from threephi_framework.models.topology.graph.node import NodeModel
-from threephi_framework.models.topology.graph.topology_version import TopologyVersionModel
-import threephi_framework.db.db as threephi_db
+import threephi_framework.db.db as threephi_db  # noqa: E402
+from threephi_framework.controllers.topology import TopologyController  # noqa: E402
+from threephi_framework.data_apps.sm_classifier import SMClassifier  # noqa: E402
+from threephi_framework.data_apps.stat_labeler import StatLabeler  # noqa: E402
+from threephi_framework.data_apps.timeseries_ingestor import TimeseriesIngestor  # noqa: E402
+from threephi_framework.data_apps.topology_ingestor import TopologyIngestor  # noqa: E402
+from threephi_framework.data_extractor.data_extractor import DataExtractor  # noqa: E402
+from threephi_framework.models.meta.meter import MetaMeterModel  # noqa: E402
+from threephi_framework.models.topology.assets.feeder import FeederModel  # noqa: E402
+from threephi_framework.models.topology.assets.transformer import TransformerModel  # noqa: E402
+from threephi_framework.models.topology.graph.cable import CableModel  # noqa: E402
+from threephi_framework.models.topology.graph.node import NodeModel  # noqa: E402
+from threephi_framework.models.topology.graph.topology_version import TopologyVersionModel  # noqa: E402
+from threephi_framework.object_storage.s3_connector import S3Connector  # noqa: E402
 
 ## Labels and helper functions for SM classifier results processing and presentation for the UI
 SM_CLASSIFIER_CATEGORY_LABELS = {
@@ -155,7 +153,7 @@ class StreamlitOrchestrator:
             raise ValueError("At least one smart meter id is required.")
         return normalized
 
-    # a method for timeseries ingestor. Inherits the logic from TimeseriesIngestor, 
+    # a method for timeseries ingestor. Inherits the logic from TimeseriesIngestor,
     # but allows to specify some of the config parameters from the UI.
     def run_timeseries_ingestor(
         self,
@@ -178,7 +176,7 @@ class StreamlitOrchestrator:
             app.run()
         return "Timeseries ingestion completed."
 
-    # a method for topology ingestor. Inherits the logic from TopologyIngestor, 
+    # a method for topology ingestor. Inherits the logic from TopologyIngestor,
     # but allows to specify some of the config parameters from the UI.
     def run_topology_ingestor(
         self,
@@ -199,7 +197,7 @@ class StreamlitOrchestrator:
             app.run()
         return "Topology ingestion completed."
 
-    # a method for SM classifier. Inherits the logic from SMClassifier, 
+    # a method for SM classifier. Inherits the logic from SMClassifier,
     # but allows to specify some of the config parameters from the UI.
     def run_sm_classifier(
         self,
@@ -267,7 +265,7 @@ class StreamlitOrchestrator:
             "summary_keys": sorted((result_summary or {}).keys()),
         }
 
-    # a method for stat labeler. Inherits the logic from StatLabeler, 
+    # a method for stat labeler. Inherits the logic from StatLabeler,
     # but allows to specify some of the config parameters from the UI.
     def run_stat_labeler(
         self,
@@ -548,14 +546,16 @@ def _summarize_sm_classifier_run(characterization: dict, classification: dict) -
     return category_counts, derived_summary_used
 
 
-def _get_sm_classifier_category_members(characterization: dict, classification: dict) -> tuple[dict[str, list[str]], bool]:
+def _get_sm_classifier_category_members(
+    characterization: dict, classification: dict
+) -> tuple[dict[str, list[str]], bool]:
     category_members = {
         key: sorted(str(meter_id) for meter_id in value)
         for key, value in classification.items()
         if isinstance(value, list)
     }
     if "All_SMs" not in category_members:
-        category_members["All_SMs"] = sorted(str(meter_id) for meter_id in characterization.keys())
+        category_members["All_SMs"] = sorted(str(meter_id) for meter_id in characterization)
 
     expected_keys = [
         "All_SMs",
@@ -579,7 +579,7 @@ def _get_sm_classifier_category_members(characterization: dict, classification: 
     derived_members = {key: [] for key in expected_keys}
     for meter_id, meter in characterization.items():
         if not isinstance(meter, dict):
-            continue  
+            continue
 
         normalized_meter_id = str(meter_id)
         data_quality = meter.get("Data Quality", {})
@@ -837,7 +837,9 @@ def _flatten_sm_classifier_connectivity(characterization: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _select_sm_classifier_plot_columns(plot_df: pd.DataFrame, phases: list[str], variable_groups: list[str]) -> list[str]:
+def _select_sm_classifier_plot_columns(
+    plot_df: pd.DataFrame, phases: list[str], variable_groups: list[str]
+) -> list[str]:
     feature_name_map = {
         "Voltage": {"voltage"},
         "Active power": {"active_power_p14", "active_power_p23"},
@@ -852,7 +854,8 @@ def _select_sm_classifier_plot_columns(plot_df: pd.DataFrame, phases: list[str],
     return [
         column
         for column in numeric_columns
-        if _get_feature_name(column) in selected_features and any(column.lower().endswith(phase) for phase in selected_phases)
+        if _get_feature_name(column) in selected_features
+        and any(column.lower().endswith(phase) for phase in selected_phases)
     ]
 
 
@@ -871,7 +874,8 @@ def _render_sm_classifier_classification_tab(
 ) -> None:
     if derived_summary_used:
         st.caption(
-            "Some saved summary categories were missing for this run, so category members and counts were backfilled from the per-meter characterization data."
+            "Some saved summary categories were missing for this run, so category members and counts "
+            "were backfilled from the per-meter characterization data."
         )
 
     if category_counts:
@@ -906,7 +910,9 @@ def _render_sm_classifier_characterization_tab(
     category_members: dict[str, list[str]],
     widget_prefix: str,
 ) -> None:
-    scope_options = ["__all__"] + [key for key in SM_CLASSIFIER_CATEGORY_ORDER if key in category_members and key != "All_SMs"]
+    scope_options = ["__all__"] + [
+        key for key in SM_CLASSIFIER_CATEGORY_ORDER if key in category_members and key != "All_SMs"
+    ]
     selected_scope = st.selectbox(
         "Meter scope",
         options=scope_options,
@@ -914,7 +920,7 @@ def _render_sm_classifier_characterization_tab(
         key=f"{widget_prefix}_characterization_scope",
     )
     scoped_meter_ids = (
-        set(str(meter_id) for meter_id in characterization.keys())
+        set(str(meter_id) for meter_id in characterization)
         if selected_scope == "__all__"
         else set(category_members.get(selected_scope, []))
     )
@@ -1082,7 +1088,9 @@ def _render_sm_classifier_plot_tab(
 
     plot_artifacts = _list_sm_classifier_plot_artifacts(run_name)
     if plot_artifacts:
-        artifact_options = [str(path.relative_to(CURRENT_FILE.parent / "Results" / run_name)) for path in plot_artifacts]
+        artifact_options = [
+            str(path.relative_to(CURRENT_FILE.parent / "Results" / run_name)) for path in plot_artifacts
+        ]
         selected_artifact = st.selectbox(
             "Saved plot artifact",
             options=artifact_options,
@@ -1093,7 +1101,8 @@ def _render_sm_classifier_plot_tab(
     else:
         st.caption(
             "No saved SM classifier SVG plot artifacts were found for this run in the local Results directory. "
-            "The selector below still lets you inspect the meters that match each plot filter and preview their timeseries."
+            "The selector below still lets you inspect the meters that match each plot filter "
+            "and preview their timeseries."
         )
 
     st.dataframe(pd.DataFrame({"meter_id": filtered_meter_ids}), use_container_width=True)
@@ -1196,7 +1205,9 @@ def _render_sm_classifier_existing_results() -> None:
                 run_name=selected_run,
                 characterization=sm_characterization,
                 classification=sm_classification,
-                data_dir_path=st.session_state.get("shared_data_dir", os.getenv("S3_DATA_DIR_PATH", "phase_measurements/raw")),
+                data_dir_path=st.session_state.get(
+                    "shared_data_dir", os.getenv("S3_DATA_DIR_PATH", "phase_measurements/raw")
+                ),
                 widget_prefix="smc_existing",
             )
         except Exception as exc:
@@ -1204,7 +1215,10 @@ def _render_sm_classifier_existing_results() -> None:
 
     elif not db_snapshot_df.empty:
         metrics, connected_phase_df, quality_df, preview_df = _summarize_sm_classifier_db(db_snapshot_df)
-        st.caption("No saved SM classifier run directory found. Showing classifier metadata currently stored in PostgreSQL.")
+        st.caption(
+            "No saved SM classifier run directory found. "
+            "Showing classifier metadata currently stored in PostgreSQL."
+        )
 
         top_c1, top_c2, top_c3, top_c4 = st.columns(4)
         top_c1.metric("Classified meters", metrics.get("classified_meters", 0))
@@ -1551,7 +1565,9 @@ def _get_topology_meter_overlay() -> tuple[pd.DataFrame, pd.DataFrame]:
 
     def _summarize_by_node(frame: pd.DataFrame, node_col: str) -> pd.DataFrame:
         if frame.empty or node_col not in frame.columns:
-            return pd.DataFrame(columns=["node_label", "total_meters", "meters_with_timeseries", "meters_with_data_quality"])
+            return pd.DataFrame(
+                columns=["node_label", "total_meters", "meters_with_timeseries", "meters_with_data_quality"]
+            )
         summary_df = (
             frame.dropna(subset=[node_col])
             .groupby(node_col, as_index=False)
@@ -1599,7 +1615,9 @@ def _summarize_topology_connections(topo_pdf: pd.DataFrame) -> tuple[pd.DataFram
     component_counts_df = pd.DataFrame(type_rows)
     if not component_counts_df.empty:
         component_counts_df = (
-            component_counts_df.groupby("component_type", as_index=False)["count"].sum().sort_values("count", ascending=False)
+            component_counts_df.groupby("component_type", as_index=False)["count"]
+            .sum()
+            .sort_values("count", ascending=False)
         )
 
     connection_type_df = edges_df[["node1", "node2"]].dropna().copy()
@@ -1732,6 +1750,7 @@ def _format_meter_preview_for_display(meter_preview_df: pd.DataFrame) -> pd.Data
         "Has data statistics",
         "Has connectivity",
     ]
+    return display_df[ordered_columns]
 
 
 def _drilldown_no_data_guidance(entity: str, profile: str, topology_level: str) -> list[str]:
@@ -1754,7 +1773,6 @@ def _drilldown_no_data_guidance(entity: str, profile: str, topology_level: str) 
         guidance.append("If no rows are returned, retry with topology level 'cleaned' or 'raw'.")
 
     return guidance
-    return display_df[ordered_columns]
 
 
 def _filter_topology_by_scope(topology_df: pd.DataFrame, scope_type: str, scope_value: str) -> pd.DataFrame:
@@ -1884,7 +1902,9 @@ def _build_topology_graphviz(
             overlay = feeder_overlay_map.get(label) if label_type == "LvFeeder" else None
             label_color = _availability_color(label_type, overlay)
             pretty_label = _format_node_label(label)
-            node_defs[label] = f'"{label}" [label="{pretty_label}", style=filled, fillcolor="{label_color}", fontcolor="white"];'
+            node_defs[label] = (
+                f'"{label}" [label="{pretty_label}", style=filled, fillcolor="{label_color}", fontcolor="white"];'
+            )
 
     for row in graph_df.itertuples(index=False):
         substation = str(row.secondary_substation)
@@ -1901,7 +1921,10 @@ def _build_topology_graphviz(
                 overlay = cabinet_overlay_map.get(node)
             fill = _availability_color(node_type, overlay)
             pretty_label = _format_node_label(node)
-            node_defs.setdefault(node, f'"{node}" [label="{pretty_label}", style=filled, fillcolor="{fill}", fontcolor="white"];')
+            node_defs.setdefault(
+                node,
+                f'"{node}" [label="{pretty_label}", style=filled, fillcolor="{fill}", fontcolor="white"];',
+            )
         edge_defs.append(f'"{substation}" -> "{transformer}" [style=dashed, color="#CE93D8"];')
         edge_defs.append(f'"{transformer}" -> "{feeder}" [style=dashed, color="#BCAAA4"];')
         edge_defs.append(f'"{node1}" -> "{node2}" [color="#607D8B"];')
@@ -2059,7 +2082,10 @@ def _render_phase_codetection_heatmap(meter_df: pd.DataFrame, phase_cols: list[s
 
     heatmap_df = pd.DataFrame(rows)
     st.markdown("**Phase-To-Phase Co-Detection Heatmap**")
-    st.caption("Each cell shows how many meters were flagged on both phases in the selected result set. Diagonal cells are per-phase detections. Off-diagonal cells show phase-to-phase co-detections.")
+    st.caption(
+        "Each cell shows how many meters were flagged on both phases in the selected result set. "
+        "Diagonal cells are per-phase detections. Off-diagonal cells show phase-to-phase co-detections."
+    )
 
     try:
         cell_step = 72
@@ -2343,7 +2369,7 @@ def _render_stat_labeler_results(results_payload: dict, meta_payload: dict) -> N
 
     if maer_rows:
         maer_df = pd.DataFrame(maer_rows)
-        maer_avg_df = maer_df.groupby("phase", as_index=True)["maer_percent"].mean().to_frame("avg_MAEr_%") 
+        maer_avg_df = maer_df.groupby("phase", as_index=True)["maer_percent"].mean().to_frame("avg_MAEr_%")
         st.markdown("**Average MAEr by phase (from meta results)**")
         st.caption(
             "MAEr is the mean absolute error divided by the mean observed phase load. Lower values indicate the "
@@ -2389,7 +2415,8 @@ def _load_meter_df(
             )
             if df is None:
                 raise FileNotFoundError(
-                    "No existing raw profile found for this meter. Disable 'Load existing only' to extract from raw data."
+                    "No existing raw profile found for this meter. "
+                    "Disable 'Load existing only' to extract from raw data."
                 )
             return df
 
@@ -2594,7 +2621,8 @@ def load_plot_df(
 def _render_data_explorer(data_dir_path: str) -> None:
     st.subheader("Data Explorer")
     st.caption(
-        "Overview of what data is available in the framework: metadata loaded in the database and raw parquet available in object storage."
+        "Overview of what data is available in the framework: metadata loaded in the database "
+        "and raw parquet available in object storage."
     )
 
     with st.sidebar:
@@ -2652,7 +2680,7 @@ def _render_data_explorer(data_dir_path: str) -> None:
 
 
         # c10, c11 = st.columns(2)
-        
+
         # c10.metric(
         #     "Days since latest timeseries update",
         #     latest_timeseries_days if latest_timeseries_days is not None else "-",
@@ -2775,13 +2803,17 @@ def _render_data_explorer(data_dir_path: str) -> None:
                 st.caption("Open for extra context about charts and graph rendering.")
                 st.write(
                     {
-                        "Scope behavior": "All topology plots and graph follow the selected scope and scope selection.",
-                        
-                        
-                        "Max topology graph edges": "Caps rendered edges for readability; lower values show a smaller subgraph.",
-                        "Base node colors": "LvFeeder=Green, Cabinet=Blue, DeliveryPoint=Orange, SecondarySubstation=Purple, Transformer=Brown, Other=Gray.",
-                        "Availability color override": "LvFeeder/Cabinet are recolored by time-series availability when overlay exists: Red<50%, Amber 50-79%, Green>=80%, Gray=unknown.",
-                        "Edge styles": "Dashed arrows show hierarchy links (Substation->Transformer, Transformer->Feeder, and feeder attachment to node1). Solid arrows show topology link node1->node2.",
+                        "Scope behavior": "All topology plots and graph follow the selected "
+                        "scope and scope selection.",
+                        "Max topology graph edges": "Caps rendered edges for readability; "
+                        "lower values show a smaller subgraph.",
+                        "Base node colors": "LvFeeder=Green, Cabinet=Blue, DeliveryPoint=Orange, "
+                        "SecondarySubstation=Purple, Transformer=Brown, Other=Gray.",
+                        "Availability color override": "LvFeeder/Cabinet are recolored by time-series "
+                        "availability when overlay exists: Red<50%, Amber 50-79%, Green>=80%, Gray=unknown.",
+                        "Edge styles": "Dashed arrows show hierarchy links (Substation->Transformer, "
+                        "Transformer->Feeder, and feeder attachment to node1). Solid arrows show topology "
+                        "link node1->node2.",
                         "Dotted edges": "Not used in current renderer.",
                     }
                 )
@@ -2809,7 +2841,7 @@ def _render_data_explorer(data_dir_path: str) -> None:
     except Exception as exc:
         st.error(f"Failed to load dataset availability overview: {exc}")
 
-    with st.expander("Timeseries drilldown plot (optional)", expanded=False):
+    with st.expander("Timeseries drilldown plot", expanded=False):
         st.caption("Use this for detailed plotting of a specific entity after reviewing availability above.")
 
         entity = st.selectbox(
@@ -2838,7 +2870,10 @@ def _render_data_explorer(data_dir_path: str) -> None:
             disabled=(entity == "meter"),
         )
         if entity == "meter":
-            st.caption("Topology level applies to aggregated entities only (cabinet/feeder/transformer/substation/zip).")
+            st.caption(
+                "Topology level applies to aggregated entities only "
+                "(cabinet/feeder/transformer/substation/zip)."
+            )
         st.caption(
             f"Selected profile: {profile_label_map.get(profile, profile)}"
             + (" (meter-specific loading)" if entity == "meter" else " (used with selected topology level)")
@@ -2914,14 +2949,17 @@ def _render_data_explorer(data_dir_path: str) -> None:
             except Exception as exc:
                 st.error(f"Failed to load or plot data: {exc}")
 
-# Rendering function for the timeseries ingestor section of the Streamlit app, allowing users to trigger ingestion with custom settings.
+# Rendering function for the timeseries ingestor section of the Streamlit app,
+# allowing users to trigger ingestion with custom settings.
 def _render_timeseries_ingestor(orchestrator: StreamlitOrchestrator) -> None:
     st.subheader("Timeseries Ingestor")
     st.caption("Load raw CSV timeseries into parquet datasets.")
 
     with st.sidebar:
         st.markdown("### Timeseries Ingestor Config")
-        csv_source_path = st.text_input("CSV source folder", value=_default_data_platform_data_dir(), key="tsi_csv_source")
+        csv_source_path = st.text_input(
+            "CSV source folder", value=_default_data_platform_data_dir(), key="tsi_csv_source"
+        )
         csv_file_pattern = st.text_input("CSV file pattern", value="phase_measurements_*.csv", key="tsi_pattern")
         parquet_destination_path = st.text_input("Parquet destination", value="phase_measurements/raw", key="tsi_dest")
         override = st.checkbox("Override existing outputs", value=False, key="tsi_override")
@@ -2977,7 +3015,10 @@ def _render_topology_ingestor(orchestrator: StreamlitOrchestrator) -> None:
 
 def _render_sm_classifier(orchestrator: StreamlitOrchestrator, data_dir_path: str) -> None:
     st.subheader("SM Classifier")
-    st.caption("Review existing classifier outputs first, then run additional classification for a selected meter sample when needed.")
+    st.caption(
+        "Review existing classifier outputs first, then run additional classification for a selected meter sample "
+        "when needed."
+    )
 
     run_success_message = st.session_state.pop("smc_run_success_message", None)
     if run_success_message:
