@@ -51,8 +51,6 @@ class AzureBlobConnector(BaseConnector):
 
     def discover_parquet_files(self, path: str) -> list[str]:
         files = [p for p in self.fs.find(path) if p.endswith(".parquet")]
-        if not files:
-            raise RuntimeError(f"No parquet files found under {path}")
         return files
 
     # === File operations ===
@@ -69,6 +67,7 @@ class AzureBlobConnector(BaseConnector):
     def promote_staged_to_ready(self, staging_root: str, ready_root: str) -> list[str]:
         staged = self.discover_parquet_files(staging_root)
         if not staged:
+            logging.info("Found no files to promote under %s", staging_root)
             return []
         logging.info("Found %d file(s) to promote, e.g. %s", len(staged), staged[0])
         promoted_file_keys: list[str] = []
