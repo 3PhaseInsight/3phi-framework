@@ -6,6 +6,7 @@ from time import time
 from dask.distributed import Client
 
 import threephi_framework.db.db as threephi_db
+from threephi_framework.controllers.ingestion import IngestionController
 from threephi_framework.controllers.meta import MetaController
 from threephi_framework.controllers.time_series import TimeSeriesController
 from threephi_framework.controllers.topology import TopologyController
@@ -20,11 +21,12 @@ def _set_up_logger():
 class BaseDataApp:
     """
     Data App Base Class. This class automatically sets up a connection to a Dask Cluster as a Context Manager.
-    Usage:
-    ```
+
+    Usage::
+
         with DataApp(config=config) as app:
             app.run()
-    ```
+
     This ensures that any Connection to the Dask Cluster is properly closed down again.
     """
 
@@ -44,6 +46,10 @@ class BaseDataApp:
     @cached_property
     def meta_controller(self):
         return MetaController(threephi_db.new_session)
+
+    @cached_property
+    def ingestion_controller(self):
+        return IngestionController(threephi_db.new_session)
 
     @cached_property
     def time_series_controller(self):
