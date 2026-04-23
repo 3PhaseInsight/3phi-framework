@@ -1,7 +1,7 @@
 import datetime
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -74,8 +74,6 @@ class FileIndexResource(BaseResource):
         return self.s.execute(stmt).scalar_one()
 
     def mark_ready(self, batch_id: uuid.UUID) -> None:
-        from sqlalchemy import update
-
         self.s.execute(
             update(FileIndexModel)
             .where(FileIndexModel.batch_id == batch_id)
