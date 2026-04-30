@@ -73,9 +73,6 @@ def clean_topology(
         global_fill = np.float32(mean_global[col])
         topology[col] = topology[col].astype("float32").fillna(fill_per_sub).fillna(global_fill)
 
-    final_defaults = {c: np.float32(mean_global[c]) for c in numerical_cols}
-    topology[numerical_cols] = topology[numerical_cols].astype("float32").fillna(final_defaults)
-
     # CLEANING STEP 2: Categorical columns — fill NaN with per-substation mode, fall back to global mode
     # TODO: This is hardcoded to second batch, could be made more generic
     categories = {
