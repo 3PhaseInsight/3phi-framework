@@ -111,9 +111,12 @@ def _summarize_sm_classifier_db(snapshot_df: pd.DataFrame) -> tuple[dict, pd.Dat
         connected_phase_rows.append(
             {
                 "label": (
-                    "3-phase" if isinstance(connected_phases, list) and len(connected_phases) == 3
-                    else "2-phase" if isinstance(connected_phases, list) and len(connected_phases) == 2
-                    else "1-phase" if isinstance(connected_phases, list) and len(connected_phases) == 1
+                    "3-phase"
+                    if isinstance(connected_phases, list) and len(connected_phases) == 3
+                    else "2-phase"
+                    if isinstance(connected_phases, list) and len(connected_phases) == 2
+                    else "1-phase"
+                    if isinstance(connected_phases, list) and len(connected_phases) == 1
                     else "Unknown"
                 )
             }
@@ -138,15 +141,11 @@ def _summarize_sm_classifier_db(snapshot_df: pd.DataFrame) -> tuple[dict, pd.Dat
 
     connected_phase_df = pd.DataFrame(connected_phase_rows)
     if not connected_phase_df.empty:
-        connected_phase_df = (
-            connected_phase_df["label"].value_counts().rename_axis("label").reset_index(name="meters")
-        )
+        connected_phase_df = connected_phase_df["label"].value_counts().rename_axis("label").reset_index(name="meters")
 
     quality_df = pd.DataFrame(quality_rows)
     if not quality_df.empty:
-        quality_df = (
-            quality_df.groupby(["phase", "summary"], as_index=False).size().rename(columns={"size": "meters"})
-        )
+        quality_df = quality_df.groupby(["phase", "summary"], as_index=False).size().rename(columns={"size": "meters"})
 
     preview_df = pd.DataFrame(preview_rows)
     return metrics, connected_phase_df, quality_df, preview_df
@@ -544,9 +543,7 @@ def _render_sm_classifier_characterization_tab(
         else set(category_members.get(selected_scope, []))
     )
     scoped_characterization = {
-        str(meter_id): payload
-        for meter_id, payload in characterization.items()
-        if str(meter_id) in scoped_meter_ids
+        str(meter_id): payload for meter_id, payload in characterization.items() if str(meter_id) in scoped_meter_ids
     }
 
     st.caption(f"Showing characterization for {len(scoped_characterization)} meters in the selected scope.")
@@ -611,8 +608,10 @@ def _render_sm_classifier_characterization_tab(
             .size()
             .rename(columns={"size": "meters"})
         )
-        summary_df["phase_variable"] = summary_df["phase"] + " | " + summary_df["variable"].map(
-            lambda value: SM_CLASSIFIER_VARIABLE_LABELS.get(value, value)
+        summary_df["phase_variable"] = (
+            summary_df["phase"]
+            + " | "
+            + summary_df["variable"].map(lambda value: SM_CLASSIFIER_VARIABLE_LABELS.get(value, value))
         )
         summary_pivot_df = summary_df.pivot(index="phase_variable", columns="summary", values="meters").fillna(0)
         st.markdown("**Quality summary distribution**")
@@ -657,8 +656,10 @@ def _render_sm_classifier_characterization_tab(
             return
 
         aggregate_df = filtered_df.groupby(["phase", "variable"], as_index=False)[selected_statistics].mean().fillna(0)
-        aggregate_df["phase_variable"] = aggregate_df["phase"] + " | " + aggregate_df["variable"].map(
-            lambda value: SM_CLASSIFIER_VARIABLE_LABELS.get(value, value)
+        aggregate_df["phase_variable"] = (
+            aggregate_df["phase"]
+            + " | "
+            + aggregate_df["variable"].map(lambda value: SM_CLASSIFIER_VARIABLE_LABELS.get(value, value))
         )
         st.markdown("**Average statistics across selected meters**")
         st.bar_chart(aggregate_df.set_index("phase_variable")[selected_statistics], use_container_width=True)
@@ -707,9 +708,7 @@ def _render_sm_classifier_plot_tab(
 
     plot_artifacts = _list_sm_classifier_plot_artifacts(run_name)
     if plot_artifacts:
-        artifact_options = [
-            str(path.relative_to(SM_CLASSIFIER_RESULTS_DIR / run_name)) for path in plot_artifacts
-        ]
+        artifact_options = [str(path.relative_to(SM_CLASSIFIER_RESULTS_DIR / run_name)) for path in plot_artifacts]
         selected_artifact = st.selectbox(
             "Saved plot artifact",
             options=artifact_options,
@@ -835,8 +834,7 @@ def _render_sm_classifier_existing_results() -> None:
     elif not db_snapshot_df.empty:
         metrics, connected_phase_df, quality_df, preview_df = _summarize_sm_classifier_db(db_snapshot_df)
         st.caption(
-            "No saved SM classifier run directory found. "
-            "Showing classifier metadata currently stored in PostgreSQL."
+            "No saved SM classifier run directory found. Showing classifier metadata currently stored in PostgreSQL."
         )
 
         top_c1, top_c2, top_c3, top_c4 = st.columns(4)

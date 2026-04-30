@@ -27,9 +27,7 @@ def _get_meter_ids_with_data_quality() -> list[str]:
     session = threephi_db.new_session()
     try:
         stmt = (
-            select(MetaMeterModel.id)
-            .where(MetaMeterModel.data_quality.is_not(None))
-            .order_by(MetaMeterModel.id.asc())
+            select(MetaMeterModel.id).where(MetaMeterModel.data_quality.is_not(None)).order_by(MetaMeterModel.id.asc())
         )
         return [str(meter_id) for meter_id in session.execute(stmt).scalars().all()]
     finally:
@@ -39,7 +37,7 @@ def _get_meter_ids_with_data_quality() -> list[str]:
 def _extract_stat_labeler_result_stamp(path: str, prefix: str) -> str:
     filename = str(path).rsplit("/", 1)[-1]
     if filename.startswith(prefix) and filename.endswith(".json"):
-        return filename[len(prefix):-5]
+        return filename[len(prefix) : -5]
     return filename
 
 
@@ -129,19 +127,27 @@ def _render_compact_phase_bar_chart(
         st.caption(title_caption)
 
     try:
-        chart = alt.Chart(plot_df).mark_bar(size=20, cornerRadiusEnd=4).encode(
-            y=alt.Y(f"{phase_col}:N", sort=phase_order, title=None),
-            x=alt.X(f"{value_col}:Q", title=None),
-            color=alt.value(color),
-            tooltip=[
-                alt.Tooltip(f"{phase_col}:N", title="Phase"),
-                alt.Tooltip(f"{value_col}:Q", title=label, format=altair_format),
-            ],
+        chart = (
+            alt.Chart(plot_df)
+            .mark_bar(size=20, cornerRadiusEnd=4)
+            .encode(
+                y=alt.Y(f"{phase_col}:N", sort=phase_order, title=None),
+                x=alt.X(f"{value_col}:Q", title=None),
+                color=alt.value(color),
+                tooltip=[
+                    alt.Tooltip(f"{phase_col}:N", title="Phase"),
+                    alt.Tooltip(f"{value_col}:Q", title=label, format=altair_format),
+                ],
+            )
         )
-        text = alt.Chart(plot_df).mark_text(align="left", baseline="middle", dx=6).encode(
-            y=alt.Y(f"{phase_col}:N", sort=phase_order),
-            x=alt.X(f"{value_col}:Q"),
-            text=alt.Text(f"{value_col}:Q", format=altair_format),
+        text = (
+            alt.Chart(plot_df)
+            .mark_text(align="left", baseline="middle", dx=6)
+            .encode(
+                y=alt.Y(f"{phase_col}:N", sort=phase_order),
+                x=alt.X(f"{value_col}:Q"),
+                text=alt.Text(f"{value_col}:Q", format=altair_format),
+            )
         )
 
         st.altair_chart(
@@ -238,15 +244,18 @@ def _render_phase_codetection_heatmap(meter_df: pd.DataFrame, phase_cols: list[s
                 alt.value("#16324F"),
             ),
         )
-        heatmap_chart = (heatmap + text).properties(
-            width={"step": cell_step},
-            height={"step": cell_step},
-        ).configure_view(stroke=None)
+        heatmap_chart = (
+            (heatmap + text)
+            .properties(
+                width={"step": cell_step},
+                height={"step": cell_step},
+            )
+            .configure_view(stroke=None)
+        )
         st.altair_chart(heatmap_chart, use_container_width=False, theme="streamlit")
     except Exception:
-        fallback_df = (
-            heatmap_df.pivot(index="phase_y", columns="phase_x", values="meters")
-            .reindex(index=phase_cols, columns=phase_cols)
+        fallback_df = heatmap_df.pivot(index="phase_y", columns="phase_x", values="meters").reindex(
+            index=phase_cols, columns=phase_cols
         )
         st.dataframe(fallback_df, use_container_width=True)
 
@@ -380,9 +389,7 @@ def _render_stat_labeler_results(results_payload: dict, meta_payload: dict) -> N
             threshold_df = pd.DataFrame(threshold_rows)
             slope_margin_df = slope_df.merge(threshold_df, on=["meter_id", "phase"], how="inner")
             slope_margin_df["phase"] = slope_margin_df["phase"].str.upper()
-            slope_margin_df["margin_to_threshold"] = (
-                slope_margin_df["threshold"] - slope_margin_df["slope"]
-            )
+            slope_margin_df["margin_to_threshold"] = slope_margin_df["threshold"] - slope_margin_df["slope"]
 
     chart_col1, chart_col2 = st.columns(2)
     with chart_col1:
@@ -418,10 +425,9 @@ def _render_stat_labeler_results(results_payload: dict, meta_payload: dict) -> N
         slope_plot_df["meter_sort"] = pd.to_numeric(slope_plot_df["meter_id"], errors="coerce")
         slope_plot_df["meter_sort"] = slope_plot_df["meter_sort"].fillna(float("inf"))
         slope_plot_df = slope_plot_df.sort_values(["meter_sort", "meter_id", "phase"])
-        slope_line_df = (
-            slope_plot_df.pivot_table(index="meter_id", columns="phase", values="slope", aggfunc="mean")
-            .reindex(columns=[phase for phase in ["L1", "L2", "L3"] if phase in slope_plot_df["phase"].unique()])
-        )
+        slope_line_df = slope_plot_df.pivot_table(
+            index="meter_id", columns="phase", values="slope", aggfunc="mean"
+        ).reindex(columns=[phase for phase in ["L1", "L2", "L3"] if phase in slope_plot_df["phase"].unique()])
         if not slope_line_df.empty:
             st.markdown("**Slope Lines By Phase Across Meters**")
             st.caption("Each line shows slope values across meters for one phase, ordered by meter ID.")
@@ -435,7 +441,8 @@ def _render_stat_labeler_results(results_payload: dict, meta_payload: dict) -> N
 
     if not slope_margin_df.empty:
         margin_avg_df = (
-            slope_margin_df.groupby("phase", as_index=False)["margin_to_threshold"].mean()
+            slope_margin_df.groupby("phase", as_index=False)["margin_to_threshold"]
+            .mean()
             .rename(columns={"margin_to_threshold": "avg_margin_to_threshold"})
         )
         insight_col1, insight_col2 = st.columns(2)

@@ -13,9 +13,7 @@ from threephi_framework.models.topology.graph.cable import CableModel
 from threephi_framework.models.topology.graph.node import NodeModel
 from threephi_framework.models.topology.graph.topology_version import TopologyVersionModel
 from threephi_framework.streamlit.shared.utils import (
-    _apply_pending_selection,
     _days_since,
-    _default_data_platform_data_dir,
     _get_feature_name,
     _safe_entity_id,
     get_extractor,
@@ -121,9 +119,7 @@ def _get_raw_parquet_inventory(data_dir_path: str) -> tuple[dict, pd.DataFrame, 
             shard_key = shard_match.group(1)
             by_shard[shard_key] = by_shard.get(shard_key, 0) + 1
 
-    date_df = pd.DataFrame(
-        [{"date": date_key, "parquet_files": count} for date_key, count in sorted(by_date.items())]
-    )
+    date_df = pd.DataFrame([{"date": date_key, "parquet_files": count} for date_key, count in sorted(by_date.items())])
     shard_df = pd.DataFrame(
         [{"shard": shard_key, "parquet_files": count} for shard_key, count in sorted(by_shard.items())]
     )
@@ -257,12 +253,8 @@ def _get_topology_inventory_overview(version: int | None = None) -> dict:
             ).scalar_one()
             or 0
         )
-        feeders = int(
-            session.execute(select(func.count()).select_from(feeder_ids_subq)).scalar_one() or 0
-        )
-        cabinets = int(
-            session.execute(select(func.count()).select_from(cabinet_ids_subq)).scalar_one() or 0
-        )
+        feeders = int(session.execute(select(func.count()).select_from(feeder_ids_subq)).scalar_one() or 0)
+        cabinets = int(session.execute(select(func.count()).select_from(cabinet_ids_subq)).scalar_one() or 0)
         delivery_points = int(
             session.execute(select(func.count()).select_from(delivery_point_ids_subq)).scalar_one() or 0
         )
@@ -414,9 +406,7 @@ def _format_connection_types_for_plot(connection_type_df: pd.DataFrame) -> pd.Da
         return pd.DataFrame(columns=["connection_type", "connections"])
 
     plot_df = connection_type_df.copy()
-    plot_df["connection_type"] = (
-        plot_df["source_type"].astype(str) + " -> " + plot_df["target_type"].astype(str)
-    )
+    plot_df["connection_type"] = plot_df["source_type"].astype(str) + " -> " + plot_df["target_type"].astype(str)
     return plot_df[["connection_type", "connections"]].sort_values("connections", ascending=False)
 
 
@@ -582,9 +572,7 @@ def _filter_overlay_by_scope(
         for column in ["node1", "node2"]:
             if column in topology_df.columns:
                 valid_nodes.update(
-                    value
-                    for value in topology_df[column].dropna().astype(str).tolist()
-                    if value.startswith("Cabinet.")
+                    value for value in topology_df[column].dropna().astype(str).tolist() if value.startswith("Cabinet.")
                 )
 
     if not valid_nodes:
@@ -600,7 +588,7 @@ def _build_topology_graphviz(
 ) -> str:
     """Build a Graphviz graph for a subset of current topology edges."""
     if topology_df is None or topology_df.empty:
-        return "digraph G { label=\"No topology data available\"; }"
+        return 'digraph G { label="No topology data available"; }'
 
     graph_df = topology_df[["secondary_substation", "transformer", "lv_feeder", "node1", "node2"]].dropna().copy()
     graph_df = graph_df.drop_duplicates().head(max_edges)
@@ -710,7 +698,7 @@ def _build_topology_graphviz(
         "rankdir=LR;",
         'graph [bgcolor="white"];',
         'node [shape=box, fontsize=10, fontname="Helvetica"];',
-        'edge [arrowsize=0.7];',
+        "edge [arrowsize=0.7];",
         *node_defs.values(),
         *edge_defs,
         "}",
@@ -865,9 +853,7 @@ def _render_data_explorer(data_dir_path: str) -> None:
                 st.markdown("**Not connected components**")
                 st.bar_chart(connected_balance_df.set_index("category")[["Not connected"]])
 
-            st.caption(
-                f"Graph scope: {scope_type}" + ("" if scope_value == "All" else f" | selection: {scope_value}")
-            )
+            st.caption(f"Graph scope: {scope_type}" + ("" if scope_value == "All" else f" | selection: {scope_value}"))
             overlay_preview_df = pd.concat(
                 [
                     scoped_feeder_overlay_df.assign(node_type="LvFeeder"),
@@ -890,8 +876,7 @@ def _render_data_explorer(data_dir_path: str) -> None:
                 st.caption("Open for extra context about charts and graph rendering.")
                 st.write(
                     {
-                        "Scope behavior": "All topology plots and graph follow the selected "
-                        "scope and scope selection.",
+                        "Scope behavior": "All topology plots and graph follow the selected scope and scope selection.",
                         "Max topology graph edges": "Caps rendered edges for readability; "
                         "lower values show a smaller subgraph.",
                         "Base node colors": "LvFeeder=Green, Cabinet=Blue, DeliveryPoint=Orange, "
@@ -958,8 +943,7 @@ def _render_data_explorer(data_dir_path: str) -> None:
         )
         if entity == "meter":
             st.caption(
-                "Topology level applies to aggregated entities only "
-                "(cabinet/feeder/transformer/substation/zip)."
+                "Topology level applies to aggregated entities only (cabinet/feeder/transformer/substation/zip)."
             )
         st.caption(
             f"Selected profile: {profile_label_map.get(profile, profile)}"

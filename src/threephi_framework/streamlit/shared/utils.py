@@ -1,7 +1,6 @@
 import logging
 import os
 import re
-import sys
 from pathlib import Path
 
 import pandas as pd
@@ -18,7 +17,6 @@ APP_ROOT = _UTILS_FILE.parents[4]
 # Results dir stays at data_apps/Results/ (unchanged from original location)
 SM_CLASSIFIER_RESULTS_DIR = _UTILS_FILE.parents[2] / "data_apps" / "Results"
 
-import threephi_framework.db.db as threephi_db  # noqa: E402
 from threephi_framework.data_extractor.data_extractor import DataExtractor  # noqa: E402
 from threephi_framework.object_storage.s3_connector import S3Connector  # noqa: E402
 
