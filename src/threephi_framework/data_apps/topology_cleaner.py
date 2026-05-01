@@ -1,5 +1,6 @@
 from threephi_framework.data_apps.base import BaseDataApp
 from threephi_framework.dtu.topology_cleaner import clean_sm_cabinet, clean_topology
+from threephi_framework.processing_level import ProcessingLevel
 
 
 class TopologyCleaner(BaseDataApp):
@@ -64,7 +65,11 @@ class TopologyCleaner(BaseDataApp):
             )
             cleaned_sm_cab_ddf = clean_sm_cabinet(sm_cab_ddf, meter_number_col=self.METER_NUMBER_COL)
 
-            self.topology_controller.ingest(cleaned_topology_ddf, cleaned_sm_cab_ddf)
+            self.topology_controller.ingest(
+                cleaned_topology_ddf,
+                cleaned_sm_cab_ddf,
+                processing_level=ProcessingLevel.CLEANED,
+            )
 
         self.meta_controller.complete_workflow(self._WORKFLOW)
 

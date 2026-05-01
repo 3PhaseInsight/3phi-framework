@@ -7,6 +7,7 @@ import dask.dataframe as dd
 import pandas as pd
 from sqlalchemy.orm.session import Session
 
+from threephi_framework.processing_level import ProcessingLevel
 from threephi_framework.resources.sanity import SanityResource
 from threephi_framework.resources.staging import StagingResource
 from threephi_framework.resources.topology.assets.cabinet import CabinetResource
@@ -93,7 +94,12 @@ class TopologyController:
         ddf = ddf.astype(sm_cabinet_types)
         return ddf
 
-    def ingest(self, topology_ddf: dd.DataFrame, sm_cab_ddf: dd.DataFrame) -> int:
+    def ingest(
+        self,
+        topology_ddf: dd.DataFrame,
+        sm_cab_ddf: dd.DataFrame,
+        processing_level: ProcessingLevel = ProcessingLevel.RAW,
+    ) -> int:
         """Ingest topology and smart-meter–cabinet data into the topology schema.
 
         This method:
@@ -107,6 +113,8 @@ class TopologyController:
         Args:
             topology_ddf (dd.DataFrame): LV topology data.
             sm_cab_ddf (dd.DataFrame): Smart-meter–cabinet mapping data.
+            processing_level (ProcessingLevel): The processing level of the data being
+                ingested. Defaults to RAW.
 
         Returns:
             int: The newly allocated topology version identifier.
@@ -131,7 +139,7 @@ class TopologyController:
             sanity = SanityResource(s)
 
             logging.info("Allocating next Topology Version")
-            version = tv.allocate_next_version()
+            version = tv.allocate_next_version(processing_level)
 
             logging.info("Creating temporary tables and loading files")
             staging.create_temp_tables()
@@ -231,18 +239,41 @@ class TopologyController:
 
     def export_topology(
         self,
+        level: ProcessingLevel | None = None,
         as_dask: bool = False,
     ) -> dd.DataFrame | pd.DataFrame:
-        """Return the *current* LV topology in the lv_topology_* dataframe format.
+        """Return the LV topology in the lv_topology_* dataframe format.
 
-        Only the version flagged ``is_current`` in ``lv.topology_version`` is returned.
-        Historical versions are retained in the database but are not yet accessible through
-        this API. To recover a previous version, call
+        If ``level`` is ``None``, returns the version flagged ``is_current`` (default
+        behaviour). If ``level`` is given, returns the most recently ingested version
+        at that processing level regardless of which version is currently active.
+
+        Historical versions are retained in the database but are not accessible by
+        arbitrary version number through this API. To recover a specific version, call
         ``TopologyVersionResource.flip_current_to(version)`` directly.
+
+        Args:
+            level (ProcessingLevel | None): Processing level to query. If None, the
+                current version is returned. Defaults to None.
+            as_dask (bool): If True, wrap the result in a single-partition Dask
+                DataFrame. Defaults to False.
+
+        Returns:
+            dd.DataFrame | pd.DataFrame: Topology data at the requested level.
+
+        Raises:
+            ValueError: If ``level`` is given but no version at that level exists.
         """
         with self._sf() as s:
             topo_export = TopologyExportResource(s)
-            pdf = topo_export.get_topology_pdf()
+            if level is None:
+                pdf = topo_export.get_topology_pdf()
+            else:
+                tv = TopologyVersionResource(s)
+                version = tv.get_latest_version_at_level(level)
+                if version is None:
+                    raise ValueError(f"No topology version found at processing level '{level}'.")
+                pdf = topo_export.get_topology_at_version(version)
 
         if as_dask:
             return dd.from_pandas(pdf, npartitions=1)
@@ -250,15 +281,35 @@ class TopologyController:
 
     def export_sm_cabinet(
         self,
+        level: ProcessingLevel | None = None,
         as_dask: bool = False,
     ) -> dd.DataFrame | pd.DataFrame:
         """Return the meter–cabinet mapping in the sm_cabinet_* dataframe format.
 
-        See :meth:`export_topology` for version-access limitations.
+        Follows the same level-selection logic as :meth:`export_topology`.
+
+        Args:
+            level (ProcessingLevel | None): Processing level to query. If None, the
+                current version is returned. Defaults to None.
+            as_dask (bool): If True, wrap the result in a single-partition Dask
+                DataFrame. Defaults to False.
+
+        Returns:
+            dd.DataFrame | pd.DataFrame: Meter–cabinet mapping data.
+
+        Raises:
+            ValueError: If ``level`` is given but no version at that level exists.
         """
         with self._sf() as s:
             topo_export = TopologyExportResource(s)
-            pdf = topo_export.get_sm_cabinet_pdf()
+            if level is None:
+                pdf = topo_export.get_sm_cabinet_pdf()
+            else:
+                tv = TopologyVersionResource(s)
+                version = tv.get_latest_version_at_level(level)
+                if version is None:
+                    raise ValueError(f"No topology version found at processing level '{level}'.")
+                pdf = topo_export.get_sm_cabinet_at_version(version)
 
         if as_dask:
             return dd.from_pandas(pdf, npartitions=1)
