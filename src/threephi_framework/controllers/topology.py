@@ -233,7 +233,13 @@ class TopologyController:
         self,
         as_dask: bool = False,
     ) -> dd.DataFrame | pd.DataFrame:
-        """Return the *current* LV topology in the lv_topology_* dataframe format."""
+        """Return the *current* LV topology in the lv_topology_* dataframe format.
+
+        Only the version flagged ``is_current`` in ``lv.topology_version`` is returned.
+        Historical versions are retained in the database but are not yet accessible through
+        this API. To recover a previous version, call
+        ``TopologyVersionResource.flip_current_to(version)`` directly.
+        """
         with self._sf() as s:
             topo_export = TopologyExportResource(s)
             pdf = topo_export.get_topology_pdf()
@@ -246,7 +252,10 @@ class TopologyController:
         self,
         as_dask: bool = False,
     ) -> dd.DataFrame | pd.DataFrame:
-        """Return the meter–cabinet mapping in the sm_cabinet_* dataframe format."""
+        """Return the meter–cabinet mapping in the sm_cabinet_* dataframe format.
+
+        See :meth:`export_topology` for version-access limitations.
+        """
         with self._sf() as s:
             topo_export = TopologyExportResource(s)
             pdf = topo_export.get_sm_cabinet_pdf()

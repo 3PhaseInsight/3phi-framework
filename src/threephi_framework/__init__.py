@@ -17,6 +17,7 @@ from .controllers.topology import TopologyController
 from .data_apps.base import BaseDataApp
 from .data_apps.sm_classifier import SMClassifier
 from .data_apps.timeseries_ingestor import TimeseriesIngestor
+from .data_apps.topology_cleaner import TopologyCleaner
 from .data_apps.topology_ingestor import TopologyIngestor
 from .data_apps.topology_tester import TopologyTester
 from .data_extractor.data_extractor import DataExtractor
@@ -28,6 +29,7 @@ __all__ = [
     "AzureBlobConnector",
     "BaseDataApp",
     "TimeseriesIngestor",
+    "TopologyCleaner",
     "TopologyIngestor",
     "TopologyTester",
     "SMClassifier",
