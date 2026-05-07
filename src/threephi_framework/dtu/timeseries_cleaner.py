@@ -18,7 +18,7 @@ def apply_quality_flags(raw_ddf: dd.DataFrame, flags_ddf: dd.DataFrame) -> dd.Da
     Returns:
         Cleaned Dask DataFrame with the same schema as raw_ddf.
     """
-    join_keys = ["meter_number", "timestamp"]
+    join_keys = ["meter_number", "timestamp", "shard", "dt"]
     merged = raw_ddf.merge(flags_ddf, on=join_keys, how="left")
 
     measurement_cols = [c for c in raw_ddf.columns if c not in join_keys]
@@ -28,6 +28,40 @@ def apply_quality_flags(raw_ddf: dd.DataFrame, flags_ddf: dd.DataFrame) -> dd.Da
             merged[col] = merged[col].where(merged[flag_col] == 0)
 
     return merged[raw_ddf.columns]
+
+
+def apply_corrections(ddf: dd.DataFrame, corrections_ddf: dd.DataFrame) -> dd.DataFrame:
+    """Fill NaN values with model-imputed corrections where corrections are available.
+
+    Corrections are stored in wide format with the same measurement columns as raw.
+    A NaN in a correction column means no correction exists for that column/row —
+    the raw (or already-nulled) value is kept as-is.
+
+    Intended to be applied after :func:`apply_quality_flags` so that flagged values
+    (now NaN) are filled with their imputed replacements, while originally-clean values
+    are never touched.
+
+    Args:
+        ddf: Timeseries Dask DataFrame, typically after apply_quality_flags has been
+             applied (flagged values already set to NaN).
+        corrections_ddf: Corrections Dask DataFrame (same shard/dt partitioning as raw),
+                         containing one nullable float32 column per measurement column.
+                         Only rows where at least one correction exists are stored.
+
+    Returns:
+        Dask DataFrame with the same schema as the input, NaN values filled where
+        corrections are available.
+    """
+    join_keys = ["meter_number", "timestamp", "shard", "dt"]
+    merged = ddf.merge(corrections_ddf, on=join_keys, how="left", suffixes=("", "_corr"))
+
+    measurement_cols = [c for c in ddf.columns if c not in join_keys]
+    for col in measurement_cols:
+        corr_col = f"{col}_corr"
+        if corr_col in merged.columns:
+            merged[col] = merged[col].fillna(merged[corr_col])
+
+    return merged[ddf.columns]
 
 
 def apply_phase_map(ddf: dd.DataFrame, phase_map: pd.DataFrame) -> dd.DataFrame:

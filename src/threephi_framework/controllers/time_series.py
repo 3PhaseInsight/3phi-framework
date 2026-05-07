@@ -3,7 +3,7 @@ import logging
 import dask.dataframe as dd
 import pandas as pd
 
-from threephi_framework.dtu.timeseries_cleaner import apply_phase_map, apply_quality_flags
+from threephi_framework.dtu.timeseries_cleaner import apply_corrections, apply_phase_map, apply_quality_flags
 from threephi_framework.object_storage.base_connector import BaseConnector
 from threephi_framework.processing_level import ProcessingLevel
 
@@ -13,61 +13,56 @@ class TimeSeriesController:
 
     Storage layout
     --------------
-    Timeseries data is stored in three co-located S3 datasets, not three full copies.
-    This keeps storage overhead minimal relative to the raw data volume:
+    Timeseries data is stored in four co-located artifacts under a single base path,
+    not three full copies. This keeps storage overhead minimal relative to the raw
+    data volume:
 
-    ``phase_measurements/raw/``
+    ``<base>/raw/``
         The canonical, unmodified parquet dataset. Partitioned by ``dt`` and ``shard``.
         Never overwritten. All processing levels derive from this base.
 
-    ``phase_measurements/flags/``
+    ``<base>/flags/``
         A co-partitioned quality-flag dataset with the same ``dt``/``shard`` scheme as
         ``raw/``. Contains one ``int8`` flag column per measurement column, named
         ``<col>_flag``. Values are ``QualityFlag`` members (0 = OK, non-zero = bad).
-        Because flags are a single byte per value and compress extremely well, the size
-        of this dataset is typically 3–5 % of the raw data volume — negligible even at
-        hundreds of GB. Produced by the *TimeseriesCleaner* data app (not yet
-        implemented).
+        Serves as the audit trail — records *why* a value was replaced.
+        Size is typically 3–5 % of the raw data volume. Produced by *TimeseriesCleaner*.
 
-    ``phase_measurements/phase_map.parquet``
+    ``<base>/corrections/``
+        A co-partitioned sparse dataset with the same ``dt``/``shard`` scheme as ``raw/``.
+        Contains the same measurement columns as raw, but only rows where at least one
+        value was imputed. A ``NaN`` in a corrections column means no imputed value
+        exists for that column in that row. Produced by *TimeseriesCleaner*.
+
+    ``<base>/phase_map.parquet``
         A tiny static lookup table with one row per meter. Columns: ``meter_number``,
         ``l1_maps_to``, ``l2_maps_to``, ``l3_maps_to``. Records which physical phase
         each measurement column actually corresponds to for that meter. Loaded once and
-        cached in-process. Produced by the *PhaseCorrector* data app (not yet
-        implemented).
+        cached in-process. Produced by *PhaseCorrector*.
 
     Read-time assembly
     ------------------
     When a caller requests a non-RAW level, this controller assembles the result
-    entirely in-memory from the stored artifacts — no additional parquet files are
-    written at query time:
+    in-memory from the stored artifacts — no additional parquet files are written at
+    query time:
 
     - ``RAW``: returns ``raw/`` directly.
-    - ``CLEANED``: merges ``raw/`` + ``flags/`` on ``(meter_number, timestamp)`` and
-      sets flagged measurement values to ``NaN``. Output schema is identical to RAW.
-    - ``CLEANED_AND_CORRECTED``: applies cleaning, then rearranges measurement columns
-      per meter according to the phase map.
+    - ``CLEANED``: merges ``raw/`` + ``flags/`` (nulls bad values) then merges
+      ``corrections/`` (fills those NaNs with model-imputed values). The result is a
+      fully continuous signal with no NaNs where imputation succeeded. Output schema is
+      identical to RAW.
+    - ``CLEANED_AND_CORRECTED``: applies CLEANED read path, then rearranges measurement
+      columns per meter according to the phase map to correct phase misassignment.
 
     Args:
-        connector: Storage connector pointing at the raw timeseries dataset root
-                   (``phase_measurements/raw``).
-        flags_connector: Storage connector pointing at the quality-flag dataset root
-                         (``phase_measurements/flags``). Required for CLEANED and
-                         CLEANED_AND_CORRECTED levels.
-        phase_map_path: Full S3 path to the static phase-assignment parquet
-                        (``s3://3phi/phase_measurements/phase_map.parquet``).
-                        Required for the CLEANED_AND_CORRECTED level.
+        connector: Storage connector rooted at the timeseries base path
+                   (e.g. ``phase_measurements``). Raw, flags, corrections, and the
+                   phase map are all accessed as sub-paths via the connector's
+                   built-in timeseries methods.
     """
 
-    def __init__(
-        self,
-        connector: BaseConnector,
-        flags_connector: BaseConnector | None = None,
-        phase_map_path: str | None = None,
-    ):
+    def __init__(self, connector: BaseConnector):
         self.connector = connector
-        self.flags_connector = flags_connector
-        self.phase_map_path = phase_map_path
         self._phase_map_cache: pd.DataFrame | None = None
 
     def get_time_series_data(
@@ -78,9 +73,11 @@ class TimeSeriesController:
         """Retrieve timeseries data for the given meter IDs at the requested level.
 
         RAW: reads directly from the raw parquet dataset. No transformation.
-        CLEANED: reads raw data and applies quality flags (flagged values → NaN).
-        CLEANED_AND_CORRECTED: applies cleaning, then corrects phase misassignment
-            using the static phase map. The phase map is loaded once and cached.
+        CLEANED: nulls flagged values via flags dataset, then fills those NaNs with
+            model-imputed values from the corrections dataset. The result is a fully
+            continuous signal wherever imputation succeeded.
+        CLEANED_AND_CORRECTED: applies CLEANED, then corrects phase misassignment using
+            the static phase map. The phase map is loaded once and cached.
 
         Args:
             meter_ids: List of meter ID strings.
@@ -88,32 +85,60 @@ class TimeSeriesController:
 
         Returns:
             dd.DataFrame: Uncomputed Dask DataFrame at the requested level.
-
-        Raises:
-            ValueError: If flags_connector or phase_map_path are missing for the
-                        requested level.
         """
         logging.info(f"Retrieving timeseries for {len(meter_ids)} meters at level '{processing_level}'")
-        raw_ddf = self.connector.get_meter_data(meter_ids=meter_ids)
+        raw_ddf = self.connector.get_raw_data(meter_ids=meter_ids)
 
         if processing_level == ProcessingLevel.RAW:
             return raw_ddf
 
-        if self.flags_connector is None:
-            raise ValueError("flags_connector is required for CLEANED and CLEANED_AND_CORRECTED levels.")
+        flags_ddf = self.connector.get_flags_data(meter_ids=meter_ids)
+        corrections_ddf = self.connector.get_corrections_data(meter_ids=meter_ids)
 
-        flags_ddf = self.flags_connector.get_meter_data(meter_ids=meter_ids)
-        cleaned_ddf = apply_quality_flags(raw_ddf, flags_ddf)
+        nulled_ddf = apply_quality_flags(raw_ddf, flags_ddf)
+        cleaned_ddf = apply_corrections(nulled_ddf, corrections_ddf)
 
         if processing_level == ProcessingLevel.CLEANED:
             return cleaned_ddf
 
-        if self.phase_map_path is None:
-            raise ValueError("phase_map_path is required for the CLEANED_AND_CORRECTED level.")
-
         return apply_phase_map(cleaned_ddf, self._load_phase_map())
+
+    def write_flags(self, flags_ddf: dd.DataFrame) -> None:
+        """Write a quality-flag DataFrame to the flags storage location.
+
+        The DataFrame must contain ``shard`` and ``dt`` columns for correct Hive-style
+        partitioning. Overwrites any existing flags at the destination.
+
+        Args:
+            flags_ddf: Flags Dask DataFrame produced by the TimeseriesCleaner data app.
+        """
+        self.connector.write_flags(
+            flags_ddf,
+            partition_on=["shard", "dt"],
+            write_index=False,
+            overwrite=True,
+        )
+
+    def write_corrections(self, corrections_ddf: dd.DataFrame) -> None:
+        """Write a corrections DataFrame to the corrections storage location.
+
+        The DataFrame must contain ``shard`` and ``dt`` columns for correct Hive-style
+        partitioning. Only rows where at least one measurement column was imputed should
+        be present. Overwrites any existing corrections at the destination.
+
+        Args:
+            corrections_ddf: Corrections Dask DataFrame produced by the TimeseriesCleaner
+                             data app. Wide format: same measurement columns as raw, with
+                             NaN where no correction exists for that column/row.
+        """
+        self.connector.write_corrections(
+            corrections_ddf,
+            partition_on=["shard", "dt"],
+            write_index=False,
+            overwrite=True,
+        )
 
     def _load_phase_map(self) -> pd.DataFrame:
         if self._phase_map_cache is None:
-            self._phase_map_cache = self.connector.read_parquet(self.phase_map_path).compute()
+            self._phase_map_cache = self.connector.read_parquet(self.connector.phase_map_path).compute()
         return self._phase_map_cache
