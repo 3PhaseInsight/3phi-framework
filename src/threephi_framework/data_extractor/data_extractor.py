@@ -36,14 +36,14 @@ logger = logging.getLogger(__name__)
 
 
 class DataExtractor:
-    def __init__(self):
+    def __init__(self, phase_measurements_dir: str = "phase_measurements/raw"):
         # Properties for new data storage layout
         self.phase_measurements_csv_schema = PhaseMeasurementsCsvSchema()
         self.phase_measurements_parquet_schema = PhaseMeasurementsParquetSchema()
         self.conn = None
         # Others
         # s3 extractor
-        self.s3_connector = S3Connector(data_dir_path="phase_measurements/raw")
+        self.s3_connector = S3Connector(data_dir_path=phase_measurements_dir)
         self.meta_controller = MetaController(threephi_db.new_session)
         self.ingestion_controller = IngestionController(threephi_db.new_session)
         self.s3_base = "s3://3phi"

@@ -1,3 +1,4 @@
+import os
 import uuid
 from typing import Any
 
@@ -18,7 +19,7 @@ ResultPhaseEnum = ENUM(
     "L2,L3",
     "all",
     name="result_phase",
-    schema="public",
+    schema=os.getenv("META_SCHEMA", "meta"),
     create_type=False,
 )
 
