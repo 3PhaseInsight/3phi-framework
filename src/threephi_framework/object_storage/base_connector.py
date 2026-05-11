@@ -8,6 +8,8 @@ import pandas as pd
 
 
 class BaseConnector(ABC):
+    dataset_root_path: str
+
     @abstractmethod
     def exists(self, path: str) -> bool:
         """
@@ -265,3 +267,26 @@ class BaseConnector(ABC):
                 Storage options dict passed to dask APIs as `storage_options=...`.
         """
         pass
+
+    # --- Timeseries convenience methods ---
+    # Concrete methods that route to the correct sub-path within dataset_root_path.
+    # Subclasses must set self.dataset_root_path in __init__.
+
+    @property
+    def phase_map_path(self) -> str:
+        return f"{self.dataset_root_path}/phase_map.parquet"
+
+    def get_raw_data(self, meter_ids: list[str]) -> dd.DataFrame:
+        return self.get_meter_data(meter_ids, dataset_root_path=f"{self.dataset_root_path}/raw")
+
+    def get_flags_data(self, meter_ids: list[str]) -> dd.DataFrame:
+        return self.get_meter_data(meter_ids, dataset_root_path=f"{self.dataset_root_path}/flags")
+
+    def get_corrections_data(self, meter_ids: list[str]) -> dd.DataFrame:
+        return self.get_meter_data(meter_ids, dataset_root_path=f"{self.dataset_root_path}/corrections")
+
+    def write_flags(self, ddf: Any, **kwargs: Any) -> None:
+        self.write_parquet(f"{self.dataset_root_path}/flags", ddf, **kwargs)
+
+    def write_corrections(self, ddf: Any, **kwargs: Any) -> None:
+        self.write_parquet(f"{self.dataset_root_path}/corrections", ddf, **kwargs)
