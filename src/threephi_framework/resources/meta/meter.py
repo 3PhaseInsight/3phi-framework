@@ -13,9 +13,7 @@ class MetaMeterResource(BaseResource):
 
     def update(self, meter_id: int, data: dict):
         stmt = update(MetaMeterModel).where(MetaMeterModel.id == meter_id).values(data)
-        result = self.s.execute(stmt)
-        self.s.commit()
-        return result
+        return self.s.execute(stmt)
 
     def get(self, meter_id: int) -> MetaMeterModel | None:
         return self.s.get(MetaMeterModel, meter_id)
@@ -46,7 +44,6 @@ class MetaMeterResource(BaseResource):
             },
         )
         self.s.execute(stmt)
-        self.s.commit()
 
     def get_timeseries_info(self) -> tuple:
         # min(first_seen), max(last_seen)

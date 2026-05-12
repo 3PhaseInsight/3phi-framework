@@ -25,7 +25,6 @@ class RunResultResource(BaseResource):
 
         obj = RunResultModel(**payload)
         self.s.add(obj)
-        self.s.commit()
 
         return obj
 
