@@ -385,7 +385,7 @@ class MetaController:
                 resolved from the current context.
         """
         try:
-            from airflow.operators.python import get_current_context
+            from airflow.providers.standard.operators.python import get_current_context
         except Exception as e:  # pragma: no cover
             raise RuntimeError("Airflow is not available; cannot resolve DAG context.") from e
 
