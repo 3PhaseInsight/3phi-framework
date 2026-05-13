@@ -12,7 +12,7 @@ class TopologyVersionResource(BaseResource):
             insert(TopologyVersionModel).values(
                 version=next_ver,
                 is_current=False,
-                processing_level=str(processing_level),
+                processing_level=processing_level,
             )
         )
         self._log_info(f"Allocated topology version {next_ver} at level '{processing_level}'")
@@ -21,7 +21,7 @@ class TopologyVersionResource(BaseResource):
     def get_latest_version_at_level(self, level: ProcessingLevel) -> int | None:
         """Return the highest version number at the given processing level, or None."""
         return self.s.execute(
-            select(func.max(TopologyVersionModel.version)).where(TopologyVersionModel.processing_level == str(level))
+            select(func.max(TopologyVersionModel.version)).where(TopologyVersionModel.processing_level == level)
         ).scalar_one_or_none()
 
     def flip_current_to(self, version: int) -> None:
