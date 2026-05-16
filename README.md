@@ -4,7 +4,8 @@ Utility classes for **DB** access, **S3** interactions, and **data processing** 
 Distributed on PyPi.
 
 > **Install name:** `3phi-framework`  
-> **Import package:** `threephi_framework`
+> **Import package:** `threephi_framework`  
+> **Used by:** [3-Phase-Insight Data Platform](https://github.com/3PhaseInsight/data-platform)
 
 ---
 
