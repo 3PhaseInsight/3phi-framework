@@ -72,12 +72,13 @@ class TimeSeriesController:
     ) -> dd.DataFrame:
         """Retrieve timeseries data for the given meter IDs at the requested level.
 
-        RAW: reads directly from the raw parquet dataset. No transformation.
-        CLEANED: nulls flagged values via flags dataset, then fills those NaNs with
-            model-imputed values from the corrections dataset. The result is a fully
-            continuous signal wherever imputation succeeded.
-        CLEANED_AND_CORRECTED: applies CLEANED, then corrects phase misassignment using
-            the static phase map. The phase map is loaded once and cached.
+        - ``RAW``: reads directly from the raw parquet dataset. No transformation.
+        - ``CLEANED``: nulls flagged values via flags dataset, then fills those NaNs
+          with model-imputed values from the corrections dataset. The result is a
+          fully continuous signal wherever imputation succeeded.
+        - ``CLEANED_AND_CORRECTED``: applies CLEANED, then corrects phase
+          misassignment using the static phase map. The phase map is loaded once
+          and cached.
 
         Args:
             meter_ids: List of meter ID strings.
