@@ -9,7 +9,7 @@ DP_REPO        ?= 3PhaseInsight/data-platform
 SQITCH_SUBPATH ?= data-platform-infrastructure/sqitch
 MIGRATIONS_DIR := ./.migrations
 SQITCH_DIR     := $(MIGRATIONS_DIR)/sqitch
-STAMP          := $(MIGRATIONS_DIR)/.ref-$(MIGRATIONS_REF).stamp
+STAMP          := $(MIGRATIONS_DIR)/.ref-$(subst /,-,$(MIGRATIONS_REF)).stamp
 
 .PHONY: up up-seeded migrations migrations-refresh down clean
 
