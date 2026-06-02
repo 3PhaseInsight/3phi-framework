@@ -10,6 +10,8 @@ deployed from the `data-platform` sqitch migrations (no `data-platform` checkout
 ## Usage
 - `make up` — schema only (empty tables); then ingest via the data apps.
 - `make up-seeded` — schema **and** load a local `db/seed/seed.sql` (see `db/seed/README.md`).
+- `make up-db` — like `make up` but **without** the MinIO object storage (Postgres + schema only).
+- `make up-db-seeded` — like `make up-seeded` but without the MinIO object storage.
 - `make migrations-refresh` — force re-fetch of the migration cache.
 - `make down` — stop the stack. `make clean` — wipe the local DB volume.
 
