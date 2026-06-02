@@ -11,3 +11,4 @@ docker/object_storage/*
 internal/
 docker/.migrations/
 docker/dev.env
+docker/db/seed/seed.sql

@@ -41,6 +41,24 @@ services:
       && bash ./sqitch-deploy.sh $${DB_HOST}:$${DB_PORT} $${DB_USER} $${DB_PASSWORD} $${DB_NAME}"
     restart: "no"
 
+  seed-runner:
+    container_name: local-3phi-seed
+    image: postgres:18-alpine
+    profiles: ["seed"]
+    environment:
+      PGPASSWORD: password
+    depends_on:
+      sqitch-runner:
+        condition: service_completed_successfully
+    volumes:
+      - ./db/seed:/seed:ro
+    entrypoint: ["sh", "-c"]
+    command: >
+      "if [ -f /seed/seed.sql ]; then
+         psql -h local-db -U postgres -d 3phi-db -v ON_ERROR_STOP=1 -f /seed/seed.sql && echo '✅ seed loaded';
+       else echo '⚠️  /seed/seed.sql not found — skipping seed (see db/seed/README.md)'; fi"
+    restart: "no"
+
   local-object-storage:
     container_name: local-minio
     image: minio/minio:latest
