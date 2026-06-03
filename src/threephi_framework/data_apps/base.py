@@ -53,7 +53,9 @@ class BaseDataApp:
 
     @cached_property
     def time_series_controller(self):
-        return TimeSeriesController(threephi_db.new_session)
+        from threephi_framework.object_storage.s3_connector import S3Connector
+
+        return TimeSeriesController(S3Connector(data_dir_path="phase_measurements"))
 
     def __enter__(self):
         self.init_dask()
