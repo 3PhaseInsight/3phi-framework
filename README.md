@@ -60,20 +60,23 @@ To set up your environment for local development, follow these steps:
 
 [execute_data_app.sh](execute_data_app.sh) expects a virtual environment to be set up under [.venv]. See the [python docs](https://docs.python.org/3/library/venv.html) on how to set it up.
 
-### Seed data
+### Seed data (optional)
 
-Obtain seed data for the database and the object storage and copy it to:
-- [3_db_seed.sql](docker/db/init/3_db_seed.sql): This should be a sql dump/snapshot of a working 3phi Database, PSQL will automatically seed the DB when it is created using docker compose.
-- [3phi](docker/object_storage/3phi): This should be a copy of a bucket from a working object storage. It will be mounted in the minio object storage as a bucket.
+The database **schema** is provisioned automatically from the canonical sqitch migrations, so you do
+not need to supply it. Seed *data* is optional:
+- Database: place a data-only dump at [docker/db/seed/seed.sql](docker/db/seed/seed.sql) (gitignored). See [docker/db/seed/README.md](docker/db/seed/README.md) for how to generate it; it is loaded by `make up-seeded`.
+- Object storage: copy a bucket from a working object storage to [3phi](docker/object_storage/3phi); it is mounted as a MinIO bucket.
 
 ### Spin up DB and Object Storage
 
-Navigate to [docker](./docker) and run 
+Navigate to [docker](./docker) and run
 ```
-docker compose up -d
+make up          # schema only (empty tables)
+make up-seeded   # schema + load docker/db/seed/seed.sql if present
 ```
 
-This will bring up a local DB and a MinIO Object Storage seeded with the data you provided.
+This brings up a local Postgres (schema deployed from the canonical sqitch migrations) and a MinIO
+Object Storage. See [docker/README.md](docker/README.md) for details.
 
 ### Run a data app locally
 
