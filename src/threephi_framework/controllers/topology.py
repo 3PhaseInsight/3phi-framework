@@ -8,6 +8,7 @@ import pandas as pd
 from sqlalchemy.orm.session import Session
 
 from threephi_framework.processing_level import ProcessingLevel
+from threephi_framework.resources.meta.meter import MetaMeterResource
 from threephi_framework.resources.sanity import SanityResource
 from threephi_framework.resources.staging import StagingResource
 from threephi_framework.resources.topology.assets.cabinet import CabinetResource
@@ -33,6 +34,47 @@ from threephi_framework.schemas.v1.topology import (
 def _set_up_logger():
     if not logging.getLogger().hasHandlers():
         logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+
+def _build_topology_map(
+    meter_ids: list[int],
+    chains_by_meter: dict[int, list],
+    zip_by_substation: dict[int, int | None],
+    meters_with_data: set[int],
+) -> dict[int, dict]:
+    """Assemble the per-meter topology map for :meth:`TopologyController.get_topology_map_for_transformer`.
+
+    Pure transformation with no I/O: it stitches together data that has already been
+    fetched from the database into the ``{meter_id: {labeled topology fields}}`` shape.
+
+    When a meter resolves to multiple topology paths, the first chain row is used,
+    matching the convention in :meth:`MetaController.get_sm_characterization`. Meters
+    without any topology chain still appear, with ``None`` topology fields.
+
+    Args:
+        meter_ids: Meters to include, in the desired output order.
+        chains_by_meter: Mapping of meter ID to the rows returned by
+            ``MeterResource.get_topology_chain_for_meter``.
+        zip_by_substation: Mapping of secondary-substation ID to its zip code.
+        meters_with_data: Meter IDs that have timeseries data (``total_rows > 0``).
+
+    Returns:
+        dict[int, dict]: ``{meter_id: {"Zip Code", "Secondary Substation ID",
+        "Transformer ID", "Feeder ID", "Cabinet ID", "Has data"}}``.
+    """
+    topology_map: dict[int, dict] = {}
+    for meter_id in meter_ids:
+        chain = chains_by_meter.get(meter_id) or []
+        first = chain[0] if chain else None
+        topology_map[meter_id] = {
+            "Zip Code": zip_by_substation.get(first.secondary_substation_id) if first else None,
+            "Secondary Substation ID": first.secondary_substation_id if first else None,
+            "Transformer ID": first.transformer_id if first else None,
+            "Feeder ID": first.feeder_id if first else None,
+            "Cabinet ID": first.cabinet_id if first else None,
+            "Has data": meter_id in meters_with_data,
+        }
+    return topology_map
 
 
 class TopologyController:
@@ -213,6 +255,49 @@ class TopologyController:
         else:
             logging.warning("Invalid node_type, valid node_type's are delivery_point, cabinet or lv_feeder.")
             return None
+
+    def get_topology_map_for_transformer(self, transformer_id: int) -> dict[int, dict]:
+        """Build a per-meter topology map for every meter under a transformer.
+
+        Finds all meters connected to the transformer (via
+        :meth:`MeterResource.get_meters_for_transformer`), resolves each meter's
+        topology chain, and combines the results into a single ``{meter_id: {...}}``
+        dictionary.
+
+        Each meter entry contains its zip code, the upstream topology IDs (secondary
+        substation, transformer, feeder, cabinet) and whether the meter has timeseries
+        data. When a meter resolves to more than one topology path, the first is used.
+
+        Args:
+            transformer_id (int): Unique identifier of the transformer.
+
+        Returns:
+            dict[int, dict]: ``{meter_id: {"Zip Code", "Secondary Substation ID",
+            "Transformer ID", "Feeder ID", "Cabinet ID", "Has data"}}`` for every
+            meter under the transformer.
+        """
+        with self._sf() as s:
+            meter_resource = MeterResource(s)
+            meta_meter_resource = MetaMeterResource(s)
+            substation_resource = SecondarySubstationResource(s)
+
+            meters = meter_resource.get_meters_for_transformer(transformer_id)
+            meter_ids = [meter["id"] for meter in meters]
+
+            chains_by_meter = {
+                meter_id: meter_resource.get_topology_chain_for_meter(meter_id=meter_id) for meter_id in meter_ids
+            }
+
+            substation_ids = {
+                row.secondary_substation_id
+                for chain in chains_by_meter.values()
+                for row in chain
+                if row.secondary_substation_id is not None
+            }
+            zip_by_substation = substation_resource.get_zip_codes_for_substations(substation_ids)
+            meters_with_data = meta_meter_resource.get_meter_ids_with_data(meter_ids)
+
+        return _build_topology_map(meter_ids, chains_by_meter, zip_by_substation, meters_with_data)
 
     def get_meters(
         self,
