@@ -22,6 +22,23 @@ class MetaMeterResource(BaseResource):
         stmt = select(func.max(MetaMeterModel.total_rows))
         return self.s.execute(stmt).scalar_one()
 
+    def get_meter_ids_with_data(self, meter_ids: list[int]) -> set[int]:
+        """Return the subset of ``meter_ids`` that have timeseries data.
+
+        A meter "has data" when its ``total_rows`` is greater than zero, matching the
+        "Contains Data" flag used in :meth:`MetaController.get_sm_characterization`.
+
+        Args:
+            meter_ids: Meter IDs to check.
+
+        Returns:
+            set[int]: The meter IDs from the input that have ``total_rows > 0``.
+        """
+        if not meter_ids:
+            return set()
+        stmt = select(MetaMeterModel.id).where(MetaMeterModel.id.in_(meter_ids)).where(MetaMeterModel.total_rows > 0)
+        return set(self.s.execute(stmt).scalars().all())
+
     def upsert_meter_stats(self, df: pd.DataFrame) -> None:
         """
         Upsert meter inventory stats from a DataFrame with columns:
