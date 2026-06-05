@@ -8,6 +8,8 @@ from threephi_framework.models.topology.assets.transformer import TransformerMod
 from threephi_framework.models.topology.utilities import EdgeCurrentModel, NodeCurrentModel
 from threephi_framework.resources.base import BaseResource
 
+import logging
+
 
 class MeterResource(BaseResource):
     def bulk_upsert_from_staging(self) -> None:
@@ -102,7 +104,7 @@ class MeterResource(BaseResource):
         """)
 
         result = self.s.execute(sql, {"substation_id": int(substation_id)})
-        return [dict(r) for r in result.mappings().all()]
+        return [dict(r) for r in result.mappings().all()]  
 
     def get_meters_for_transformer(self, transformer_id: int) -> list[dict]:
         """
@@ -263,107 +265,128 @@ class MeterResource(BaseResource):
 
         result = self.s.execute(stmt.order_by(MeterModel.id))
         return [dict(r) for r in result.mappings().all()]
+    
 
     def get_topology_chain_for_meter(self, meter_id: int):
-        # meter -> delivery point (MODEL id)
-        dp_id = (
-            select(MeterModel.delivery_point_id.label("delivery_point_id"))
-            .where(MeterModel.id == meter_id)
-            .cte("dp_id")
-        )
+        sql = text("""
+            WITH RECURSIVE
+              cur AS (
+                SELECT version
+                FROM lv.topology_version
+                WHERE is_current
+              ),
 
-        # delivery point -> dp node (NODE id for traversal)
-        dp_node = (
-            select(NodeCurrentModel.id.label("dp_node_id"))
-            .select_from(dp_id)
-            .join(NodeCurrentModel, NodeCurrentModel.delivery_point_id == dp_id.c.delivery_point_id)
-            .cte("dp_node")
-        )
+              dp AS (
+                SELECT 
+                    m.id AS meter_id,
+                    m.delivery_point_id
+                FROM lv.meter m
+                WHERE m.id = :meter_id
+              ),
 
-        # 1-hop neighbors of DP node (undirected) [NODE ids]
-        nbrs_1 = union_all(
-            select(EdgeCurrentModel.node2_id.label("node_id"))
-            .select_from(dp_node)
-            .where(EdgeCurrentModel.node1_id == dp_node.c.dp_node_id),
-            select(EdgeCurrentModel.node1_id.label("node_id"))
-            .select_from(dp_node)
-            .where(EdgeCurrentModel.node2_id == dp_node.c.dp_node_id),
-        ).cte("nbrs_1")
+              dp_node AS (
+                SELECT
+                    n.version,
+                    n.id AS node_id,
+                    n.delivery_point_id
+                FROM lv.node n
+                JOIN cur
+                  ON cur.version = n.version
+                JOIN dp
+                  ON dp.delivery_point_id = n.delivery_point_id
+                WHERE n.node_type = 'DeliveryPoint'
+              ),
 
-        # --- Direct feeders: DP <-> LvFeeder ---
-        direct_paths = (
-            select(
-                NodeCurrentModel.feeder_id.label("feeder_id"),  # MODEL id
-                literal(None).cast(Integer).label("cabinet_id"),  # MODEL id (nullable)
-            )
-            .select_from(nbrs_1)
-            .join(NodeCurrentModel, NodeCurrentModel.id == nbrs_1.c.node_id)
-            .where(NodeCurrentModel.node_type == "LvFeeder")
-            .cte("direct_paths")
-        )
+              walk(version, node_id, path, cabinet_id, depth) AS (
+                -- Anchor: start at the delivery point node
+                SELECT
+                    d.version,
+                    d.node_id,
+                    ARRAY[d.node_id]::bigint[] AS path,
+                    NULL::bigint AS cabinet_id,
+                    0 AS depth
+                FROM dp_node d
 
-        # --- Adjacent cabinets: DP <-> Cabinet ---
-        # keep cabinet NODE id for traversal and cabinet MODEL id for return
-        adjacent_cabinets = (
-            select(
-                NodeCurrentModel.id.label("cab_node_id"),  # NODE id
-                NodeCurrentModel.cabinet_id.label("cabinet_id"),  # MODEL id
-            )
-            .select_from(nbrs_1)
-            .join(NodeCurrentModel, NodeCurrentModel.id == nbrs_1.c.node_id)
-            .where(NodeCurrentModel.node_type == "Cabinet")
-            .cte("adjacent_cabinets")
-        )
+                UNION ALL
 
-        # 2-hop neighbors of cabinet nodes (undirected), carrying cabinet MODEL id
-        cab_nbrs = union_all(
-            select(
-                EdgeCurrentModel.node2_id.label("node_id"),
-                adjacent_cabinets.c.cabinet_id.label("cabinet_id"),
-            )
-            .select_from(adjacent_cabinets)
-            .where(EdgeCurrentModel.node1_id == adjacent_cabinets.c.cab_node_id),
-            select(
-                EdgeCurrentModel.node1_id.label("node_id"),
-                adjacent_cabinets.c.cabinet_id.label("cabinet_id"),
-            )
-            .select_from(adjacent_cabinets)
-            .where(EdgeCurrentModel.node2_id == adjacent_cabinets.c.cab_node_id),
-        ).cte("cab_nbrs")
+                -- Recursive step: walk undirected through edges
+                SELECT
+                    w.version,
 
-        # --- Cabinet feeders: DP <-> Cabinet <-> LvFeeder ---
-        cabinet_paths = (
-            select(
-                NodeCurrentModel.feeder_id.label("feeder_id"),  # MODEL id
-                cab_nbrs.c.cabinet_id.label("cabinet_id"),  # MODEL id
-            )
-            .select_from(cab_nbrs)
-            .join(NodeCurrentModel, NodeCurrentModel.id == cab_nbrs.c.node_id)
-            .where(NodeCurrentModel.node_type == "LvFeeder")
-            .cte("cabinet_paths")
-        )
+                    CASE
+                        WHEN e.node1_id = w.node_id THEN e.node2_id
+                        ELSE e.node1_id
+                    END AS next_node_id,
 
-        # Combine both path types
-        all_paths = (
-            select(direct_paths.c.feeder_id, direct_paths.c.cabinet_id)
-            .union_all(select(cabinet_paths.c.feeder_id, cabinet_paths.c.cabinet_id))
-            .cte("all_paths")
-        )
+                    w.path || CASE
+                        WHEN e.node1_id = w.node_id THEN e.node2_id
+                        ELSE e.node1_id
+                    END AS path,
 
-        # Final projection (MODEL ids only)
-        stmt = (
-            select(
-                TransformerModel.substation_id.label("secondary_substation_id"),
-                FeederModel.transformer_id.label("transformer_id"),
-                all_paths.c.feeder_id.label("feeder_id"),
-                all_paths.c.cabinet_id.label("cabinet_id"),
-                dp_id.c.delivery_point_id.label("delivery_point_id"),
-            )
-            .select_from(dp_id)
-            .join(all_paths, true())  # fan-out
-            .join(FeederModel, FeederModel.id == all_paths.c.feeder_id)
-            .join(TransformerModel, TransformerModel.id == FeederModel.transformer_id)
-            .distinct()
-        )
+                    COALESCE(
+                        w.cabinet_id,
+                        CASE
+                            WHEN n.node_type = 'Cabinet' THEN n.cabinet_id
+                            ELSE NULL
+                        END
+                    ) AS cabinet_id,
 
-        return self.s.execute(stmt).all()
+                    w.depth + 1 AS depth
+                FROM walk w
+                JOIN lv.edge e
+                  ON e.version = w.version
+                AND (
+                      e.node1_id = w.node_id
+                      OR e.node2_id = w.node_id
+                )
+                JOIN lv.node n
+                  ON n.version = w.version
+                AND n.id = CASE
+                        WHEN e.node1_id = w.node_id THEN e.node2_id
+                        ELSE e.node1_id
+                    END
+                WHERE NOT (
+                    CASE
+                        WHEN e.node1_id = w.node_id THEN e.node2_id
+                        ELSE e.node1_id
+                    END = ANY(w.path)
+                )
+              ),
+
+              feeder_paths AS (
+                SELECT DISTINCT
+                    n.feeder_id,
+                    w.cabinet_id,
+                    w.depth
+                FROM walk w
+                JOIN lv.node n
+                  ON n.version = w.version
+                AND n.id = w.node_id
+                WHERE n.node_type = 'LvFeeder'
+              )
+
+            SELECT
+                secondary_substation_id,
+                transformer_id,
+                feeder_id,
+                cabinet_id,
+                delivery_point_id
+            FROM (
+                SELECT DISTINCT
+                    t.substation_id AS secondary_substation_id,
+                    f.transformer_id AS transformer_id,
+                    fp.feeder_id AS feeder_id,
+                    fp.cabinet_id AS cabinet_id,
+                    dp.delivery_point_id AS delivery_point_id,
+                    fp.depth AS depth
+                FROM feeder_paths fp
+                JOIN lv.feeder f
+                  ON f.id = fp.feeder_id
+                JOIN lv.transformer t
+                  ON t.id = f.transformer_id
+                JOIN dp ON true
+            ) q
+            ORDER BY depth;
+        """)
+
+        return self.s.execute(sql, {"meter_id": int(meter_id)}).all()
