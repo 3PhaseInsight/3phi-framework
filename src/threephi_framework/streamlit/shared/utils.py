@@ -144,180 +144,124 @@ def _normalize_sm_ids(sm_ids: list[str]) -> list[str]:
 def _load_meter_df(
     extractor: DataExtractor,
     meter_id: str,
-    profile: str,
     add_current: bool,
     add_unbalance: bool,
     load_existing_only: bool,
 ) -> pd.DataFrame:
-    if profile == "raw_profiles":
-        if load_existing_only:
-            df = extractor.load_raw_dataset_for_sm(
-                meter_id=meter_id,
-                add_current=add_current,
-                add_unbalance=add_unbalance,
-            )
-            if df is None:
-                raise FileNotFoundError(
-                    "No existing raw profile found for this meter. "
-                    "Disable 'Load existing only' to extract from raw data."
-                )
+    if load_existing_only:
+        df = extractor.load_raw_dataset_for_sm(
+            meter_id=meter_id,
+            add_current=add_current,
+            add_unbalance=add_unbalance,
+        )
+        if df is not None:
             return df
 
+    try:
         return extractor.extract_raw_dataset_for_sm(
             meter_id=meter_id,
             add_current=add_current,
             add_unbalance=add_unbalance,
             save=False,
         )
+    except Exception as exc:
+        message = str(exc)
+        if "phase_measurements_*.csv resolved to no files" in message:
+            candidate_dirs = [
+                os.getenv("LOCAL_CSV_DATA_DIR"),
+                str(APP_ROOT.parent / "data-platform" / "data"),
+                str(APP_ROOT / "data"),
+            ]
+            checked_dirs: list[str] = []
+            for candidate in candidate_dirs:
+                if not candidate:
+                    continue
+                candidate_path = Path(candidate)
+                checked_dirs.append(str(candidate_path))
+                if not candidate_path.exists() or not candidate_path.is_dir():
+                    continue
+                if not list(candidate_path.glob("phase_measurements_*.csv")):
+                    continue
 
-    if profile == "cleaned_profiles":
-        return extractor.load_cleaned_dataset_for_sm(
-            meter_id=meter_id,
-            add_current=add_current,
-            add_unbalance=add_unbalance,
-        )
+                extractor._extract_csv_to_parquet(
+                    s3_path=extractor.sourcedata_dir,
+                    file_pattern="phase_measurements_*.csv",
+                    csv_dir=str(candidate_path),
+                )
+                extractor.meta_controller.complete_workflow("timeseries_csv_to_parquet")
+                return extractor.extract_raw_dataset_for_sm(
+                    meter_id=meter_id,
+                    add_current=add_current,
+                    add_unbalance=add_unbalance,
+                    save=False,
+                )
 
-    return extractor.load_cleaned_and_phase_corrected_dataset_for_sm(
-        meter_id=meter_id,
-        add_current=add_current,
-        add_unbalance=add_unbalance,
-    )
+            raise FileNotFoundError(
+                "No cached raw dataset was found for this meter, and local source CSV files are unavailable. "
+                "Run the Timeseries Ingestor first, place phase_measurements_*.csv files under data-platform/data, "
+                "or set LOCAL_CSV_DATA_DIR to your CSV folder before retrying drilldown. "
+                f"Checked: {', '.join(checked_dirs)}"
+            ) from exc
+        raise
 
 
 def _load_group_df(
     extractor: DataExtractor,
     entity: str,
     entity_id: str,
-    topology_level: str,
-    profile: str,
+    topology_version: int | None,
     add_current: bool,
     add_unbalance: bool,
 ) -> pd.DataFrame:
-    """Load or extract dataset for a non-meter entity based on selected profile and topology scope."""
+    """Load or extract raw dataset for a non-meter entity based on selected topology version."""
+    # DataExtractor group APIs currently accept processing level, not explicit topology version.
+    # Streamlit uses raw topology processing while exposing version selection in UI.
+    topology_processing_level = "raw"
+
     if entity == "cabinet":
-        if profile == "raw_profiles":
-            return extractor.extract_raw_sm_dataset_for_cabinet(
-                cabinet_id=entity_id,
-                topology_processing_level=topology_level,
-                use_existing_raw_sm_profiles=True,
-                add_current=add_current,
-                add_unbalance=add_unbalance,
-                save=False,
-            )
-        if profile == "cleaned_profiles":
-            return extractor.extract_cleaned_sm_dataset_for_cabinet(
-                cabinet_id=entity_id,
-                topology_processing_level=topology_level,
-                add_current=add_current,
-                add_unbalance=add_unbalance,
-                save=False,
-            )
-        return extractor.extract_cleaned_and_phase_corrected_sm_dataset_for_cabinet(
+        return extractor.extract_raw_sm_dataset_for_cabinet(
             cabinet_id=entity_id,
-            topology_processing_level=topology_level,
+            topology_processing_level=topology_processing_level,
+            use_existing_raw_sm_profiles=True,
             add_current=add_current,
             add_unbalance=add_unbalance,
             save=False,
         )
 
     if entity == "feeder":
-        if profile == "raw_profiles":
-            return extractor.extract_raw_sm_dataset_for_feeder(
-                feeder_id=entity_id,
-                topology_processing_level=topology_level,
-                use_existing_raw_sm_profiles=True,
-                add_current=add_current,
-                add_unbalance=add_unbalance,
-                save=False,
-            )
-        if profile == "cleaned_profiles":
-            return extractor.extract_cleaned_sm_dataset_for_feeder(
-                feeder_id=entity_id,
-                topology_processing_level=topology_level,
-                add_current=add_current,
-                add_unbalance=add_unbalance,
-                save=False,
-            )
-        return extractor.extract_cleaned_and_phase_corrected_sm_dataset_for_feeder(
+        return extractor.extract_raw_sm_dataset_for_feeder(
             feeder_id=entity_id,
-            topology_processing_level=topology_level,
+            topology_processing_level=topology_processing_level,
+            use_existing_raw_sm_profiles=True,
             add_current=add_current,
             add_unbalance=add_unbalance,
             save=False,
         )
 
     if entity == "transformer":
-        if profile == "raw_profiles":
-            return extractor.extract_raw_sm_dataset_for_transformer(
-                transformer_id=entity_id,
-                topology_processing_level=topology_level,
-                use_existing_raw_sm_profiles=True,
-                add_current=add_current,
-                add_unbalance=add_unbalance,
-                save=False,
-            )
-        if profile == "cleaned_profiles":
-            return extractor.extract_cleaned_sm_dataset_for_transformer(
-                transformer_id=entity_id,
-                topology_processing_level=topology_level,
-                add_current=add_current,
-                add_unbalance=add_unbalance,
-                save=False,
-            )
-        return extractor.extract_cleaned_and_phase_corrected_sm_dataset_for_transformer(
+        return extractor.extract_raw_sm_dataset_for_transformer(
             transformer_id=entity_id,
-            topology_processing_level=topology_level,
+            topology_processing_level=topology_processing_level,
+            use_existing_raw_sm_profiles=True,
             add_current=add_current,
             add_unbalance=add_unbalance,
             save=False,
         )
 
     if entity == "secondary_substation":
-        if profile == "raw_profiles":
-            return extractor.extract_raw_sm_dataset_for_secondary_substation(
-                substation_id=entity_id,
-                topology_processing_level=topology_level,
-                use_existing_raw_sm_profiles=True,
-                add_current=add_current,
-                add_unbalance=add_unbalance,
-                save=False,
-            )
-        if profile == "cleaned_profiles":
-            return extractor.extract_cleaned_sm_dataset_for_secondary_substation(
-                substation_id=entity_id,
-                topology_processing_level=topology_level,
-                add_current=add_current,
-                add_unbalance=add_unbalance,
-                save=False,
-            )
-        return extractor.extract_cleaned_and_phase_corrected_sm_dataset_for_secondary_substation(
+        return extractor.extract_raw_sm_dataset_for_secondary_substation(
             substation_id=entity_id,
-            topology_processing_level=topology_level,
+            topology_processing_level=topology_processing_level,
+            use_existing_raw_sm_profiles=True,
             add_current=add_current,
             add_unbalance=add_unbalance,
             save=False,
         )
 
     # zip
-    if profile == "raw_profiles":
-        return extractor.extract_raw_sm_dataset_for_zip(
-            zip_id=entity_id,
-            topology_processing_level=topology_level,
-            add_current=add_current,
-            add_unbalance=add_unbalance,
-            save=False,
-        )
-    if profile == "cleaned_profiles":
-        return extractor.extract_cleaned_sm_dataset_for_zip(
-            zip_id=entity_id,
-            topology_processing_level=topology_level,
-            add_current=add_current,
-            add_unbalance=add_unbalance,
-            save=False,
-        )
-    return extractor.extract_cleaned_and_phase_corrected_sm_dataset_for_zip(
+    return extractor.extract_raw_sm_dataset_for_zip(
         zip_id=entity_id,
-        topology_processing_level=topology_level,
+        topology_processing_level=topology_processing_level,
         add_current=add_current,
         add_unbalance=add_unbalance,
         save=False,
@@ -329,8 +273,7 @@ def load_plot_df(
     data_dir_path: str,
     entity: str,
     entity_id: str,
-    topology_level: str,
-    profile: str,
+    topology_version: int | None,
     add_current: bool,
     add_unbalance: bool,
     load_existing_only: bool,
@@ -340,7 +283,6 @@ def load_plot_df(
         return _load_meter_df(
             extractor=extractor,
             meter_id=entity_id,
-            profile=profile,
             add_current=add_current,
             add_unbalance=add_unbalance,
             load_existing_only=load_existing_only,
@@ -349,8 +291,7 @@ def load_plot_df(
         extractor=extractor,
         entity=entity,
         entity_id=entity_id,
-        topology_level=topology_level,
-        profile=profile,
+        topology_version=topology_version,
         add_current=add_current,
         add_unbalance=add_unbalance,
     )

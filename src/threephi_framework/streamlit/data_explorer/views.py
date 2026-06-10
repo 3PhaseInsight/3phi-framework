@@ -2,10 +2,12 @@ import re
 
 import pandas as pd
 import streamlit as st
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 
 import threephi_framework.db.db as threephi_db
 from threephi_framework.controllers.topology import TopologyController
+from threephi_framework.models.meta.file_index import FileIndexModel
 from threephi_framework.models.meta.meter import MetaMeterModel
 from threephi_framework.models.topology.assets.feeder import FeederModel
 from threephi_framework.models.topology.assets.transformer import TransformerModel
@@ -14,10 +16,7 @@ from threephi_framework.models.topology.graph.node import NodeModel
 from threephi_framework.models.topology.graph.topology_version import TopologyVersionModel
 from threephi_framework.streamlit.shared.utils import (
     _days_since,
-    _get_feature_name,
-    _safe_entity_id,
     get_extractor,
-    load_plot_df,
 )
 
 
@@ -140,9 +139,13 @@ def _get_latest_timeseries_update() -> str:
     """Return latest committed ingestion timestamp from file index."""
     session = threephi_db.new_session()
     try:
-        latest = session.execute(text("SELECT max(committed_at) FROM file_index WHERE status = 'ready'"))
-        latest_value = latest.scalar_one_or_none()
+        latest_value = session.execute(
+            select(func.max(FileIndexModel.committed_at)).where(FileIndexModel.status == "ready")
+        ).scalar_one_or_none()
         return str(latest_value) if latest_value else "-"
+    except SQLAlchemyError:
+        # Data Explorer should still render in environments without meta schema migrations.
+        return "-"
     finally:
         session.close()
 
@@ -517,28 +520,6 @@ def _format_meter_preview_for_display(meter_preview_df: pd.DataFrame) -> pd.Data
     return display_df[ordered_columns]
 
 
-def _drilldown_no_data_guidance(entity: str, profile: str, topology_level: str) -> list[str]:
-    """Return practical next steps when drilldown selection yields no rows."""
-    guidance: list[str] = []
-
-    if entity == "meter" and profile == "raw_profiles":
-        guidance.append("Disable 'Load existing only (meter/raw)' to extract raw profiles on demand.")
-        guidance.append("Try another meter ID that appears in 'Meter inventory preview'.")
-    elif entity == "meter":
-        guidance.append("Try profile 'raw_profiles' first, then compare with cleaned profiles.")
-        guidance.append("Verify the meter has data rows and timestamp coverage in the preview table.")
-    else:
-        guidance.append("Try a broader entity first (e.g., feeder or transformer) to validate data availability.")
-        guidance.append("Switch topology level between raw/cleaned/cleaned_and_corrected.")
-        if profile != "raw_profiles":
-            guidance.append("If cleaned profiles are empty, retry with profile 'raw_profiles'.")
-
-    if topology_level == "cleaned_and_corrected":
-        guidance.append("If no rows are returned, retry with topology level 'cleaned' or 'raw'.")
-
-    return guidance
-
-
 def _filter_topology_by_scope(topology_df: pd.DataFrame, scope_type: str, scope_value: str) -> pd.DataFrame:
     """Filter exported topology by selected scope."""
     if topology_df is None or topology_df.empty or scope_type == "All" or scope_value == "All":
@@ -850,7 +831,7 @@ def _render_data_explorer(data_dir_path: str) -> None:
                 current_topology_inventory,
             )
             if not connected_balance_df.empty:
-                st.markdown("**Not connected components**")
+                st.markdown("**Disconnected components**")
                 st.bar_chart(connected_balance_df.set_index("category")[["Not connected"]])
 
             st.caption(f"Graph scope: {scope_type}" + ("" if scope_value == "All" else f" | selection: {scope_value}"))
@@ -913,109 +894,3 @@ def _render_data_explorer(data_dir_path: str) -> None:
     except Exception as exc:
         st.error(f"Failed to load dataset availability overview: {exc}")
 
-    with st.expander("Timeseries drilldown plot", expanded=False):
-        st.caption("Use this for detailed plotting of a specific entity after reviewing availability above.")
-
-        entity = st.selectbox(
-            "Entity",
-            ["meter", "cabinet", "feeder", "transformer", "secondary_substation", "zip"],
-            index=0,
-            key="explorer_entity",
-        )
-        entity_id = st.text_input("Entity ID", value="87", key="explorer_entity_id")
-        profile = st.selectbox(
-            "Profile",
-            ["raw_profiles", "cleaned_profiles", "cleaned_and_phase_corrected_profiles"],
-            index=0,
-            key="explorer_profile",
-        )
-        profile_label_map = {
-            "raw_profiles": "Raw",
-            "cleaned_profiles": "Cleaned",
-            "cleaned_and_phase_corrected_profiles": "Cleaned + phase corrected",
-        }
-        topology_level = st.selectbox(
-            "Topology level",
-            ["raw", "cleaned", "cleaned_and_corrected"],
-            index=0,
-            key="explorer_topology",
-            disabled=(entity == "meter"),
-        )
-        if entity == "meter":
-            st.caption(
-                "Topology level applies to aggregated entities only (cabinet/feeder/transformer/substation/zip)."
-            )
-        st.caption(
-            f"Selected profile: {profile_label_map.get(profile, profile)}"
-            + (" (meter-specific loading)" if entity == "meter" else " (used with selected topology level)")
-        )
-        add_current = st.checkbox("Add current", value=False, key="explorer_add_current")
-        add_unbalance = st.checkbox("Add unbalance", value=False, key="explorer_add_unbalance")
-        load_existing_only = st.checkbox(
-            "Load existing only (meter/raw)",
-            value=True,
-            key="explorer_load_existing_only",
-            disabled=not (entity == "meter" and profile == "raw_profiles"),
-        )
-
-        if st.button("Load Drilldown Plot", type="primary", key="explorer_load_button"):
-            try:
-                normalized_id = _safe_entity_id(entity_id, "Entity ID")
-                df = load_plot_df(
-                    data_dir_path=data_dir_path,
-                    entity=entity,
-                    entity_id=normalized_id,
-                    topology_level=topology_level,
-                    profile=profile,
-                    add_current=add_current,
-                    add_unbalance=add_unbalance,
-                    load_existing_only=load_existing_only,
-                )
-
-                if df is None or df.empty:
-                    st.warning("No data returned for this selection.")
-                    for hint in _drilldown_no_data_guidance(entity, profile, topology_level):
-                        st.caption(f"Tip: {hint}")
-                else:
-                    plot_df = df.copy()
-                    if not isinstance(plot_df.index, pd.DatetimeIndex):
-                        for candidate in ["timestamp", "timestamp_dst"]:
-                            if candidate in plot_df.columns:
-                                plot_df[candidate] = pd.to_datetime(plot_df[candidate], utc=True, errors="coerce")
-                                plot_df = plot_df.set_index(candidate)
-                                break
-
-                    if isinstance(plot_df.index, pd.DatetimeIndex):
-                        plot_df = plot_df.sort_index()
-
-                    st.success(f"Loaded {plot_df.shape[0]} rows and {plot_df.shape[1]} columns.")
-                    numeric_cols = plot_df.select_dtypes(include=["number"]).columns.tolist()
-                    if not numeric_cols:
-                        st.warning("No numeric columns available to plot.")
-                        st.dataframe(plot_df.head(50))
-                    else:
-                        feature_options = sorted({_get_feature_name(c) for c in numeric_cols})
-                        selected_features = st.multiselect(
-                            "Features to plot",
-                            options=feature_options,
-                            default=feature_options[: min(3, len(feature_options))],
-                            key="explorer_features",
-                        )
-                        selected_cols = (
-                            [c for c in numeric_cols if _get_feature_name(c) in selected_features]
-                            if selected_features
-                            else numeric_cols[: min(6, len(numeric_cols))]
-                        )
-                        st.line_chart(plot_df[selected_cols])
-                        st.dataframe(plot_df[selected_cols].head(200), use_container_width=True)
-
-                        csv_bytes = plot_df[selected_cols].to_csv().encode("utf-8")
-                        st.download_button(
-                            label="Download plotted data as CSV",
-                            data=csv_bytes,
-                            file_name=f"3phi_{entity}_{normalized_id}_{profile}.csv",
-                            mime="text/csv",
-                            key="explorer_download",
-                        )
-            except Exception as exc:
-                st.error(f"Failed to load or plot data: {exc}")
