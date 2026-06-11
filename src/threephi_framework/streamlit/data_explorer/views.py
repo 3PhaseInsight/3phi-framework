@@ -893,4 +893,3 @@ def _render_data_explorer(data_dir_path: str) -> None:
 
     except Exception as exc:
         st.error(f"Failed to load dataset availability overview: {exc}")
-
