@@ -1,4 +1,6 @@
-from sqlalchemy import BigInteger, Integer, text
+from collections.abc import Iterable
+
+from sqlalchemy import BigInteger, Integer, select, text
 from sqlalchemy.dialects.postgresql import insert
 
 from threephi_framework.models.topology.assets.secondary_substation import SecondarySubstationModel
@@ -6,6 +8,24 @@ from threephi_framework.resources.base import BaseResource
 
 
 class SecondarySubstationResource(BaseResource):
+    def get_zip_codes_for_substations(self, substation_ids: Iterable[int]) -> dict[int, int | None]:
+        """Return a ``{substation_id: zip_code}`` lookup for the given substations.
+
+        Args:
+            substation_ids: Secondary-substation IDs to look up.
+
+        Returns:
+            dict[int, int | None]: Zip code per substation ID. Substations with no
+            stored zip code map to ``None``; IDs not present in the table are omitted.
+        """
+        ids = list(substation_ids)
+        if not ids:
+            return {}
+        stmt = select(SecondarySubstationModel.id, SecondarySubstationModel.zip_code).where(
+            SecondarySubstationModel.id.in_(ids)
+        )
+        return {row.id: row.zip_code for row in self.s.execute(stmt)}
+
     def bulk_upsert_from_staging(self) -> None:
         select_stmt = text(r"""
           SELECT DISTINCT

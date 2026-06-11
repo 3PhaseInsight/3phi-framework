@@ -5,7 +5,6 @@ src/3phi_framework.egg-info
 .DS_Store
 docs/_build
 docker/tmp
-docker/db/init/3_db_seed.sql
 docker/object_storage/*
 **.bak
 **.venv
@@ -18,3 +17,7 @@ src/threephi_framework/data_apps/Results/streamlit_sm_classifier/streamlit_sm_cl
 .env
 .pre-commit-config.yaml
 src/threephi_framework/data_apps/Results/streamlit_sm_classifier/streamlit_sm_classifier_SM_characterization.json
+internal/
+docker/.migrations/
+docker/dev.env
+docker/db/seed/seed.sql
