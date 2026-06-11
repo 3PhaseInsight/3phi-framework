@@ -32,8 +32,8 @@ class TimeseriesIngestor(BaseDataApp):
         completed = self.meta_controller.is_workflow_completed(workflow)
         if not completed or self.override:
             self.data_extractor.v1_csv_to_parquet_partitions(
-                csv_path="/opt/airflow/data",
-                csv_file_pattern="phase_measurements_*.csv",
+                csv_path=self.csv_source_path,
+                csv_file_pattern=self.csv_file_pattern,
                 bucket_dest_path=f"{self.data_extractor.s3_base}/{self.parquet_destination_path}",
             )
         self.meta_controller.complete_workflow(workflow)

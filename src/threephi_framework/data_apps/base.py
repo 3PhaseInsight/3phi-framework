@@ -92,7 +92,3 @@ class BaseDataApp:
 
     def close_dask(self):
         self.dask_client.close()
-
-
-if __name__ == "__main__":
-    data_app = BaseDataApp({})

@@ -14,7 +14,7 @@ from matplotlib import pyplot as plt
 
 
 def save_sm_plot(sm_id, sm_df, sm_id_results, cfg):
-    s3_connector = S3Connector()
+    s3_connector = S3Connector(data_dir_path=cfg.get("data_dir_path", "phase_measurements/raw"))
 
     # Determine under which directories the plot has to be saved according to user settings and data characteristics
     dirs_to_save = []
