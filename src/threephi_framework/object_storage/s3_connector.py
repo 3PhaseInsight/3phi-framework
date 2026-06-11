@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import tempfile
 from concurrent.futures import as_completed
 from concurrent.futures.thread import ThreadPoolExecutor
 
@@ -22,6 +21,7 @@ class S3Connector(BaseConnector):
         self.access_key = os.environ["S3_ACCESS_KEY"]
         self.secret_key = os.environ["S3_SECRET_KEY"]
         self.s3_base = "s3://3phi"
+        self.storage_base = self.s3_base
         self.dataset_root_path = f"{self.s3_base}/{data_dir_path}"
 
         self.fs = s3fs.S3FileSystem(
@@ -178,44 +178,4 @@ class S3Connector(BaseConnector):
             "client_kwargs": {"endpoint_url": self.endpoint_url},
         }
 
-    # === Plotting ===
-    def save_plot(self, path, fig, format="svg", transparent=False, dpi=300, overwrite=True, save_kwargs=None):
-        """
-        Function to save plots to the S3 bucket
-        :param path: Path to save the plot, e.g.: "s3://3phi/plots/plot1.svg"
-        :param fig: Matplotlib figure object to save
-        :param format: Format to save the plot in, default is 'svg'. Options are 'svg', 'png'
-        :param transparent: Whether the background of the plot should be transparent, default is False
-        :param dpi: Resolution of the saved plot, default is 300
-        :param overwrite: Whether to overwrite the plot if it already exists, default is True
-        :param save_kwargs: Additional keyword arguments to pass to fig.savefig()
-        """
-        fmt = format.lower()
-        if fmt not in {"svg", "png"}:
-            raise ValueError(f"Unsupported format: {fmt}")
-
-        if not isinstance(transparent, bool):
-            raise ValueError("transparent must be a boolean value.")
-
-        if not path.endswith(f".{fmt}"):
-            raise ValueError(f"path must end with .{fmt}")
-
-        if not overwrite and self.fs.exists(path):
-            logging.info("Plot %s already exists and overwrite=False. Skipping.", path)
-            return
-
-        kwargs = {"format": fmt, "bbox_inches": "tight", "transparent": transparent}
-        if fmt == "png":
-            kwargs["dpi"] = dpi
-
-        if save_kwargs is not None:
-            if not isinstance(save_kwargs, dict):
-                raise ValueError("save_kwargs must be a dictionary.")
-            kwargs.update(save_kwargs)
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            local_path = os.path.join(tmpdir, os.path.basename(path))
-            fig.savefig(local_path, **kwargs)
-            self.put_file(local_path, path)
-
-        logging.info("Plot saved to %s.", path)
+    # === Plotting: save_plot inherited from BaseConnector ===

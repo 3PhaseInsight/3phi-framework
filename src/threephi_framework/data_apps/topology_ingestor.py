@@ -20,8 +20,8 @@ class TopologyIngestor(BaseDataApp):
             app.run()
     """
 
-    def __init__(self, config):
-        super().__init__(config)
+    def __init__(self, config, connector=None):
+        super().__init__(config, connector=connector)
         self.override = self.config["override"]
         self.topology_source_path = self.config["topology_source_path"]
         self.sm_cab_source_path = self.config["sm_cab_source_path"]

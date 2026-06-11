@@ -34,6 +34,14 @@ Topology Ingestor
    :undoc-members:
    :show-inheritance:
 
+Topology Cleaner
+~~~~~~~~~~~~~~~~
+
+.. automodule:: threephi_framework.data_apps.topology_cleaner
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Topology Tester
 ~~~~~~~~~~~~~~~
 
@@ -46,6 +54,14 @@ SM Classifier
 ~~~~~~~~~~~~~
 
 .. automodule:: threephi_framework.data_apps.sm_classifier
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Stat Labeler
+~~~~~~~~~~~~
+
+.. automodule:: threephi_framework.data_apps.stat_labeler
    :members:
    :undoc-members:
    :show-inheritance:
@@ -78,6 +94,14 @@ Time Series Controller
 ~~~~~~~~~~~~~~~~~~~~~~
 
 .. automodule:: threephi_framework.controllers.time_series
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Ingestion Controller
+~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: threephi_framework.controllers.ingestion
    :members:
    :undoc-members:
    :show-inheritance:

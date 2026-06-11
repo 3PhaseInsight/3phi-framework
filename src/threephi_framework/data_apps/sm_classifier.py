@@ -52,8 +52,8 @@ class SMClassifier(BaseDataApp):
     ALLOWED_VARIABLES = {"V", "P14", "P23", "Q12", "Q34"}
     ALLOWED_PHASES = {"L1", "L2", "L3"}
 
-    def __init__(self, config):
-        super().__init__(config=config)
+    def __init__(self, config, connector=None):
+        super().__init__(config=config, connector=connector)
         self.use_dask = config.get("use_dask", False)
         self.sm_ids = config.get("sm_ids", "All")
         self.save_plots = config.get("save_plots", False)

@@ -144,7 +144,7 @@ class TopologyExportResource(BaseResource):
 
 
                 -- one row per physical cable on each edge
-                LEFT JOIN lv.edge_cable ec ON ec.edge_id = e.id
+                LEFT JOIN lv.edge_cable ec ON ec.edge_id = e.id AND ec.version = e.version
                 LEFT JOIN lv.cable c
                 ON c.cable_id = ec.cable_id
                 AND c.version  = ec.version

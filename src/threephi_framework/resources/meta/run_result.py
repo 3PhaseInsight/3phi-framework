@@ -14,11 +14,11 @@ class RunResultResource(BaseResource):
 
     def insert(self, data: dict[str, Any]) -> RunResultModel:
         """
-        Insert a new run_result row and commit immediately.
+        Add a new run_result row to the session (the caller owns the commit).
 
         Notes:
         - Generates a UUID if `id` is not provided.
-        - Raises on constraint violations (FK, NOT NULL, etc.).
+        - Raises on constraint violations (FK, NOT NULL, etc.) at flush/commit time.
         """
         payload = dict(data)
         payload.setdefault("id", uuid.uuid4())
