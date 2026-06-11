@@ -20,8 +20,8 @@ class TimeseriesIngestor(BaseDataApp):
             app.run()
     """
 
-    def __init__(self, config):
-        super().__init__(config)
+    def __init__(self, config, connector=None):
+        super().__init__(config, connector=connector)
         self.override = self.config["override"]
         self.csv_source_path = self.config["csv_source_path"]
         self.csv_file_pattern = self.config["csv_file_pattern"]

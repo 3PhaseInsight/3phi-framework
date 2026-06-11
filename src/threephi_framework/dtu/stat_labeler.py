@@ -495,8 +495,13 @@ def label_meters(sm_ids, sm_with_hp, cfg):
     # row dicts — normalize to a set of string IDs for membership checks.
     sm_ids_with_hp = {str(m["id"]) for m in sm_with_hp}
 
-    # Load heat pump status and weather data
-    data_extractor = DataExtractor(phase_measurements_dir=cfg["data_dir_path"])
+    # Load heat pump status and weather data. This function runs on Dask workers,
+    # so the connector is reconstructed from the backend name instead of being
+    # shipped through the task graph.
+    data_extractor = DataExtractor(
+        phase_measurements_dir=cfg["data_dir_path"],
+        backend=cfg.get("object_storage_backend"),
+    )
     weather_df = data_extractor.s3_connector.read_small_csv(cfg["weather_file"])
     weather_df["DateTime"] = pd.to_datetime(weather_df["DateTime"], dayfirst=True, utc=True)
     weather_df.set_index("DateTime", inplace=True)

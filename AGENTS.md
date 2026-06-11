@@ -15,6 +15,7 @@ src/threephi_framework/
 ├── db/db.py                      # SQLAlchemy engine + new_session() factory
 ├── object_storage/
 │   ├── base_connector.py         # Abstract storage interface (+ raw/flags/corrections convenience methods)
+│   ├── factory.py                # create_connector(): backend from arg / env / "s3" default
 │   ├── s3_connector.py           # MinIO/S3 impl (s3fs + Dask storage options)
 │   └── azure_blob_connector.py   # Azure Blob Storage impl (adlfs)
 ├── models/
@@ -93,11 +94,13 @@ Context manager. Always use as `with MyApp(config) as app: app.run()`.
 - `TopologyVersion` with `is_current` flag enables reproducible historical queries
 
 ### Storage connectors (`object_storage/`)
-`BaseConnector` defines the full interface. Two implementations ship out of the box:
+`BaseConnector` defines the full interface (including `put_file`, `glob`, the shared `save_plot`, a uniform `storage_base`, and `with_data_dir()` for deriving siblings). Two implementations ship out of the box:
 - `S3Connector` — wraps s3fs; targets MinIO/S3; bucket hardcoded to `3phi`
 - `AzureBlobConnector` — wraps adlfs; targets Azure Blob Storage; falls back to `DefaultAzureCredential` when no account key is set
 
 Both use the same Parquet sharding scheme: meter_id → `util.v1_get_shard_for_meter_id()` → 3 shards.
+
+**Backend selection**: data apps accept a `connector=` constructor argument (dependency injection); without one, `create_connector()` (`object_storage/factory.py`) picks the backend from `config["object_storage_backend"]`, then the `OBJECT_STORAGE_BACKEND` env var, then defaults to "s3". Code that runs on Dask workers reconstructs the connector from the backend name in its cfg — never ship connector instances through task graphs. Never construct `S3Connector` directly in app code; inject or use the factory.
 
 `TimeSeriesController` accepts any `BaseConnector` — swap the implementation without changing application code. `get_meter_data(meter_ids, dataset_root_path=None)` accepts an optional path override; if omitted, falls back to the path set at construction time.
 
@@ -106,6 +109,8 @@ Both use the same Parquet sharding scheme: meter_id → `util.v1_get_shard_for_m
 ```python
 config = {
     "result_name": "optional_run_label",   # defaults to unix timestamp
+    "data_dir_path": "phase_measurements/raw",   # dataset root the connector is bound to
+    "object_storage_backend": "s3",        # or "azure"; omit to use OBJECT_STORAGE_BACKEND / "s3"
     "dask": {
         # Remote cluster:
         "host": "dask-scheduler",

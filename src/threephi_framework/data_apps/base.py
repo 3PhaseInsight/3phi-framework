@@ -11,6 +11,8 @@ from threephi_framework.controllers.meta import MetaController
 from threephi_framework.controllers.time_series import TimeSeriesController
 from threephi_framework.controllers.topology import TopologyController
 from threephi_framework.data_extractor.data_extractor import DataExtractor
+from threephi_framework.object_storage.base_connector import BaseConnector
+from threephi_framework.object_storage.factory import create_connector
 
 
 def _set_up_logger():
@@ -28,13 +30,33 @@ class BaseDataApp:
             app.run()
 
     This ensures that any Connection to the Dask Cluster is properly closed down again.
+
+    Object storage
+    --------------
+    Every data app works against a single :class:`BaseConnector`. It is resolved
+    in this order:
+
+    1. the ``connector`` constructor argument (dependency injection — pass any
+       ``BaseConnector`` implementation to swap the storage backend in code)
+    2. built via :func:`~threephi_framework.object_storage.factory.create_connector`
+       from ``config["object_storage_backend"]`` ("s3" or "azure")
+    3. the ``OBJECT_STORAGE_BACKEND`` environment variable, then the "s3" default
+
+    The connector is rooted at ``config["data_dir_path"]`` (default
+    ``phase_measurements/raw``) and shared with the DataExtractor and the
+    TimeSeriesController.
     """
 
-    def __init__(self, config):
+    def __init__(self, config, connector: BaseConnector | None = None):
         self.config = config
         self.result_name = self.config.get("result_name", str(int(time())))
         self.dask_settings = self.config.get("dask", {"host": "dask-scheduler", "port": "8786"})
-        self.data_extractor = DataExtractor()
+
+        self.data_dir_path = self.config.get("data_dir_path", "phase_measurements/raw")
+        self.connector = connector or create_connector(
+            self.data_dir_path, backend=self.config.get("object_storage_backend")
+        )
+        self.data_extractor = DataExtractor(phase_measurements_dir=self.data_dir_path, connector=self.connector)
         self.dask_client: Client
 
         _set_up_logger()
@@ -53,9 +75,10 @@ class BaseDataApp:
 
     @cached_property
     def time_series_controller(self):
-        from threephi_framework.object_storage.s3_connector import S3Connector
-
-        return TimeSeriesController(S3Connector(data_dir_path="phase_measurements"))
+        # The level-aware controller is rooted one level above the raw dataset
+        # (raw/, flags/, corrections/ and phase_map.parquet live underneath it)
+        ts_base = self.data_dir_path.removesuffix("/raw")
+        return TimeSeriesController(self.connector.with_data_dir(ts_base))
 
     def __enter__(self):
         self.init_dask()

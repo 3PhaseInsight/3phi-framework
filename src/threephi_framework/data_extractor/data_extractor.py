@@ -51,7 +51,8 @@ from threephi_framework.data_extractor.schemas.phase_measurements.v1 import (
     PhaseMeasurementsCsvSchema,
     PhaseMeasurementsParquetSchema,
 )
-from threephi_framework.object_storage.s3_connector import S3Connector
+from threephi_framework.object_storage.base_connector import BaseConnector
+from threephi_framework.object_storage.factory import create_connector
 from threephi_framework.processing_level import ProcessingLevel
 from threephi_framework.util.util import v1_get_shard_for_meter_id
 
@@ -96,23 +97,41 @@ def _profile_level(profile: str) -> ProcessingLevel:
 
 
 class DataExtractor:
-    def __init__(self, phase_measurements_dir: str = "phase_measurements/raw"):
+    def __init__(
+        self,
+        phase_measurements_dir: str = "phase_measurements/raw",
+        connector: BaseConnector | None = None,
+        backend: str | None = None,
+    ):
+        """
+        Args:
+            phase_measurements_dir: Dataset root of the raw timeseries within the
+                bucket/container.
+            connector: Optional injected object-storage connector rooted at
+                ``phase_measurements_dir``. Takes precedence over ``backend``.
+            backend: Optional backend name ("s3" / "azure") for the connector
+                factory when no connector is injected.
+        """
         # Schemas of the canonical timeseries layout
         self.phase_measurements_csv_schema = PhaseMeasurementsCsvSchema()
         self.phase_measurements_parquet_schema = PhaseMeasurementsParquetSchema()
 
-        # Connector rooted at the raw timeseries dataset (kept for backwards compat:
-        # data apps reach object storage via `data_extractor.s3_connector`)
-        self.s3_connector = S3Connector(data_dir_path=phase_measurements_dir)
+        # Connector rooted at the raw timeseries dataset. The attribute keeps its
+        # historical name `s3_connector` for backwards compatibility, but may hold
+        # any BaseConnector implementation; `connector` is the preferred alias.
+        self.connector = connector or create_connector(phase_measurements_dir, backend=backend)
+        self.s3_connector = self.connector
 
         # Controllers — the actual implementations behind this proxy
         self.meta_controller = MetaController(threephi_db.new_session)
         self.ingestion_controller = IngestionController(threephi_db.new_session)
         self.topology_controller = TopologyController(threephi_db.new_session)
         ts_base = phase_measurements_dir.removesuffix("/raw")
-        self.time_series_controller = TimeSeriesController(S3Connector(data_dir_path=ts_base))
+        self.time_series_controller = TimeSeriesController(self.connector.with_data_dir(ts_base))
 
-        self.s3_base = "s3://3phi"
+        # Kept as `s3_base` for backwards compatibility; holds the storage root of
+        # whatever backend the connector targets (e.g. "s3://3phi" or "az://3phi").
+        self.s3_base = self.connector.storage_base
         self.sourcedata_dir = f"{self.s3_base}/{SOURCE_DATA_DIR}"
         self.processed_data_dir = f"{self.s3_base}/{PROCESSED_DATA_DIR}"
 

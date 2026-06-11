@@ -40,8 +40,8 @@ class TopologyCleaner(BaseDataApp):
     PHASE_MATERIAL_COL = "phase_material"
     METER_NUMBER_COL = "meter_number"
 
-    def __init__(self, config):
-        super().__init__(config)
+    def __init__(self, config, connector=None):
+        super().__init__(config, connector=connector)
         self.override = self.config.get("override", False)
 
     def run(self):

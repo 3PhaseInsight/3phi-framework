@@ -5,7 +5,6 @@ from tqdm import tqdm
 import threephi_framework.db.db as threephi_db
 from threephi_framework.controllers.meta import MetaController
 from threephi_framework.data_extractor.data_extractor import DataExtractor
-from threephi_framework.object_storage.s3_connector import S3Connector
 
 matplotlib.use("Agg")
 import os
@@ -13,9 +12,7 @@ import os
 from matplotlib import pyplot as plt
 
 
-def save_sm_plot(sm_id, sm_df, sm_id_results, cfg):
-    s3_connector = S3Connector(data_dir_path=cfg.get("data_dir_path", "phase_measurements/raw"))
-
+def save_sm_plot(sm_id, sm_df, sm_id_results, cfg, connector):
     # Determine under which directories the plot has to be saved according to user settings and data characteristics
     dirs_to_save = []
     plot_selection = cfg["plot_cfg"]["SM_selection"]
@@ -163,14 +160,19 @@ def save_sm_plot(sm_id, sm_df, sm_id_results, cfg):
 
         for d in dirs_to_save:
             d_norm = str(d).replace("\\", "/").lstrip("/")
-            s3_path = f"{cfg['results_dir']}/{d_norm}/{filename}"
-            s3_connector.save_plot(
-                s3_path, fig, format=format, transparent=transparent, dpi=dpi, overwrite=overwrite_plots
+            plot_path = f"{cfg['results_dir']}/{d_norm}/{filename}"
+            connector.save_plot(
+                plot_path, fig, format=format, transparent=transparent, dpi=dpi, overwrite=overwrite_plots
             )
 
 
 def meter_evaluation(sm_ids, cfg):
-    data_extractor = DataExtractor(phase_measurements_dir=cfg["data_dir_path"])
+    # Runs on Dask workers: the connector is reconstructed from the backend name
+    # instead of being shipped through the task graph.
+    data_extractor = DataExtractor(
+        phase_measurements_dir=cfg["data_dir_path"],
+        backend=cfg.get("object_storage_backend"),
+    )
     meta_controller = MetaController(threephi_db.new_session)
 
     # Get timeseries data
@@ -356,7 +358,7 @@ def meter_evaluation(sm_ids, cfg):
 
             # Save plot on request (with option to create plots only for certain criteria like has connection error)
             if cfg["save_plots"]:
-                save_sm_plot(sm_id, sm_df, sm_id_results, cfg)
+                save_sm_plot(sm_id, sm_df, sm_id_results, cfg, data_extractor.connector)
 
         # Update the JSONB smart meter field with the results of the current sm_id
         meta_controller.update_sm_characterization(meter_id=sm_id, data=sm_id_results)

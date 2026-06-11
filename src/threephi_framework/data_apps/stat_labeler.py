@@ -25,14 +25,17 @@ class StatLabelerConfig(BaseConfig):
     weather_file: str
     weather_file_local: str
     save_meta_results: bool
+    # Optional backend selector for workers ("s3" / "azure"); None falls back to
+    # the OBJECT_STORAGE_BACKEND env var, then "s3".
+    object_storage_backend: str | None = None
 
 
 class StatLabeler(BaseDataApp):
     # Initialization method which is automatically called when creating an instance of this class
-    def __init__(self, config):
+    def __init__(self, config, connector=None):
         # Set up the config settings from the parent class
         # set up batch, profile_processing_level, result_name, dask client, logger, and data extractor
-        super().__init__(config)
+        super().__init__(config, connector=connector)
 
         self.config = StatLabelerConfig(**config)
 
