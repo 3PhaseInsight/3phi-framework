@@ -10,44 +10,51 @@ Quick-reference for AI agents working in this repository. Read this before explo
 
 ```
 src/threephi_framework/
-├── __init__.py                   # Public API (S3Connector, AzureBlobConnector, BaseDataApp, SMClassifier, controllers, data apps)
+├── __init__.py                   # Public API (connectors, BaseDataApp, data apps, DataExtractor, TopologyController, ProcessingLevel)
+├── processing_level.py           # ProcessingLevel StrEnum (raw / cleaned / cleaned_and_corrected)
 ├── db/db.py                      # SQLAlchemy engine + new_session() factory
 ├── object_storage/
-│   ├── base_connector.py         # Abstract storage interface
+│   ├── base_connector.py         # Abstract storage interface (+ raw/flags/corrections convenience methods)
 │   ├── s3_connector.py           # MinIO/S3 impl (s3fs + Dask storage options)
 │   └── azure_blob_connector.py   # Azure Blob Storage impl (adlfs)
 ├── models/
 │   ├── base.py                   # BaseModel (DeclarativeBase)
 │   ├── topology/lv_schema_mixin.py   # Sets schema="lv" for topology tables
-│   ├── meta/meta_schema_mixin.py     # Sets schema for metadata tables
 │   ├── topology/assets/          # SecondarySubstation, Transformer, Feeder, Cabinet, DeliveryPoint, Meter
-│   └── topology/graph/           # Node, Edge, Cable, EdgeCable, TopologyVersion
+│   ├── topology/graph/           # Node, Edge, Cable, EdgeCable, TopologyVersion
+│   ├── topology/utilities.py     # NodeCurrentModel / EdgeCurrentModel (map the *_current views)
+│   ├── meta/meta_schema_mixin.py     # Sets schema for metadata tables
+│   └── meta/                     # MetaMeter, FileIndex, IngestBatch, RunResult, WorkflowState
 ├── resources/
 │   ├── base.py                   # BaseResource: session=self.s, bulk_insert(), _log_*()
 │   ├── staging.py                # Temp tables for bulk ingestion
 │   ├── sanity.py                 # Pre-commit data validation checks
-│   ├── topology/                 # Mirrors models/topology/ (assets + graph)
-│   └── meta/                    # MetaMeterResource, RunResultResource
+│   ├── topology/                 # Mirrors models/topology/ (assets + graph) + topology_export.py
+│   └── meta/                     # MetaMeter, FileIndex, IngestBatch, RunResult, WorkflowState resources
 ├── controllers/
-│   ├── topology.py               # TopologyController: version management, ingestion, queries
-│   ├── meta.py                   # MetaController: meter metadata, classifier outputs
-│   └── time_series.py            # TimeSeriesController: S3 time series access
+│   ├── topology.py               # TopologyController: version management, ingestion, queries, exports
+│   ├── meta.py                   # MetaController: meter metadata, run results, workflow states
+│   ├── time_series.py            # TimeSeriesController: processing-level-aware timeseries reads
+│   └── ingestion.py              # IngestionController: ingest batch + file index lifecycle
 ├── data_apps/
 │   ├── base.py                   # BaseDataApp: context manager, Dask lifecycle, cached controllers
 │   ├── base_config.py            # BaseConfig frozen dataclass → .to_dict()
 │   ├── timeseries_ingestor.py
 │   ├── topology_ingestor.py
+│   ├── topology_cleaner.py       # Re-ingests the current topology at level "cleaned"
 │   ├── topology_tester.py
 │   ├── sm_classifier.py
 │   └── stat_labeler.py
 ├── data_extractor/
-│   └── data_extractor.py         # CSV→Parquet partitioning, sharded S3 writes
+│   ├── data_extractor.py         # CSV→Parquet ingestion + legacy-compatible proxy over the controllers
+│   └── schemas/phase_measurements/v1.py  # Parquet/CSV column schemas + QualityFlag
 ├── schemas/v1/                   # Pandas dtype definitions (topology, phase_measurements)
-├── dtu/                          # Data transformation utilities (sm_classifier, stat_labeler)
+├── dtu/                          # Domain logic (sm_classifier, stat_labeler, timeseries_cleaner, topology_cleaner)
 └── util/util.py                  # v1_get_shard_for_meter_id() — xxhash % 3 sharding
 ```
 
-No `tests/` directory. Integration testing is done via `if __name__ == "__main__"` blocks in data apps.
+Unit tests live in `tests/` (pure-Python, no DB required): run with `pytest`. Data apps
+additionally have `if __name__ == "__main__"` blocks for integration runs against a live stack.
 
 ## Architecture: three-tier pattern
 
@@ -138,7 +145,8 @@ All live in the `lv` DB schema. Meter metadata (JSONB columns `data_quality`, `d
 
 ## Environment
 
-All connection settings come from `.env` (not committed):
+All connection settings come from `.env`. The committed `.env` contains local-dev defaults
+matching the `docker/` stack — real deployments override these values:
 
 ```bash
 # S3 / MinIO
@@ -160,7 +168,8 @@ DB_HOST=localhost
 DB_PORT=5432
 ```
 
-Local dev: `docker compose up -d` inside `docker/` spins up PostgreSQL + MinIO.
+Local dev: `make up` inside `docker/` spins up PostgreSQL (schema deployed from the canonical
+data-platform sqitch migrations) + MinIO. See `docker/README.md` for seeding and variants.
 
 ## What NOT to do
 
