@@ -91,7 +91,6 @@ class TopologyController:
 
     def __init__(self, session_factory: Callable[[], Session]):
         self._sf = session_factory
-        self.meter_resource = MeterResource(self._sf())
         _set_up_logger()
 
     @staticmethod
@@ -230,7 +229,8 @@ class TopologyController:
         Returns:
             list[dict]: A list of meter records associated with the substation.
         """
-        return self.meter_resource.get_meters_for_substation(id)
+        with self._sf() as s:
+            return MeterResource(s).get_meters_for_substation(id)
 
     def get_meters_for_node(self, node_id: int, node_type: str) -> list[dict] | None:
         """Retrieve all meters associated with a given node.
@@ -246,15 +246,17 @@ class TopologyController:
             list[dict] | None: A list of meter records associated with the node
             or None if an invalid node_type was given.
         """
-        if node_type == "delivery_point":
-            return self.meter_resource.get_meters_for_delivery_point(node_id)
-        elif node_type == "cabinet":
-            return self.meter_resource.get_meters_for_cabinet(node_id)
-        elif node_type == "lv_feeder":
-            return self.meter_resource.get_meters_for_feeder(node_id)
-        else:
-            logging.warning("Invalid node_type, valid node_type's are delivery_point, cabinet or lv_feeder.")
-            return None
+        with self._sf() as s:
+            meter_resource = MeterResource(s)
+            if node_type == "delivery_point":
+                return meter_resource.get_meters_for_delivery_point(node_id)
+            elif node_type == "cabinet":
+                return meter_resource.get_meters_for_cabinet(node_id)
+            elif node_type == "lv_feeder":
+                return meter_resource.get_meters_for_feeder(node_id)
+            else:
+                logging.warning("Invalid node_type, valid node_type's are delivery_point, cabinet or lv_feeder.")
+                return None
 
     def get_topology_map_for_transformer(self, transformer_id: int) -> dict[int, dict]:
         """Build a per-meter topology map for every meter under a transformer.
@@ -319,8 +321,8 @@ class TopologyController:
         Returns:
             list[dict]: List of meter objects matching the given filters.
         """
-        meters = self.meter_resource.get_meters(has_heat_pump, has_solar_panel)
-        return meters
+        with self._sf() as s:
+            return MeterResource(s).get_meters(has_heat_pump, has_solar_panel)
 
     def export_topology(
         self,
