@@ -8,7 +8,7 @@ except ImportError:  # pragma: no cover
     from importlib_metadata import PackageNotFoundError, version  # type: ignore
 
 try:
-    __version__ = version("threephi-framework")
+    __version__ = version("3phi-framework")
 except PackageNotFoundError:
     __version__ = "0.0.0"
 
