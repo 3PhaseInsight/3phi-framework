@@ -18,7 +18,6 @@ APP_ROOT = _UTILS_FILE.parents[4]
 SM_CLASSIFIER_RESULTS_DIR = _UTILS_FILE.parents[2] / "data_apps" / "Results"
 
 from threephi_framework.data_extractor.data_extractor import DataExtractor  # noqa: E402
-from threephi_framework.object_storage.s3_connector import S3Connector  # noqa: E402
 
 
 class StreamlitLogHandler(logging.Handler):
@@ -38,10 +37,13 @@ class StreamlitLogHandler(logging.Handler):
 
 @st.cache_resource
 def get_extractor(data_dir_path: str) -> DataExtractor:
-    """Initialize a shared DataExtractor and bind it to the selected dataset root."""
-    extractor = DataExtractor()
-    extractor.s3_connector = S3Connector(data_dir_path=data_dir_path)
-    return extractor
+    """Initialize a shared DataExtractor rooted at the selected dataset path.
+
+    The object-storage backend is resolved by the connector factory
+    (OBJECT_STORAGE_BACKEND env var, "s3" by default), so the app works against
+    any supported backend without code changes.
+    """
+    return DataExtractor(phase_measurements_dir=data_dir_path)
 
 
 @st.cache_resource
@@ -60,15 +62,18 @@ def load_runtime_env() -> list[str]:
             os.environ.setdefault(key, value)
 
     required_vars = [
-        "S3_ENDPOINT_URL",
-        "S3_ACCESS_KEY",
-        "S3_SECRET_KEY",
         "DB_USER",
         "DB_PASSWORD",
         "DB_HOST",
         "DB_PORT",
         "DB_NAME",
     ]
+    # Storage credentials depend on the selected object-storage backend
+    backend = (os.environ.get("OBJECT_STORAGE_BACKEND") or "s3").strip().lower()
+    if backend in {"azure", "az", "azure_blob"}:
+        required_vars += ["AZURE_STORAGE_ACCOUNT_NAME", "AZURE_STORAGE_CONTAINER_NAME"]
+    else:
+        required_vars += ["S3_ENDPOINT_URL", "S3_ACCESS_KEY", "S3_SECRET_KEY"]
     return [name for name in required_vars if not os.environ.get(name)]
 
 
@@ -148,15 +153,9 @@ def _load_meter_df(
     add_unbalance: bool,
     load_existing_only: bool,
 ) -> pd.DataFrame:
-    if load_existing_only:
-        df = extractor.load_raw_dataset_for_sm(
-            meter_id=meter_id,
-            add_current=add_current,
-            add_unbalance=add_unbalance,
-        )
-        if df is not None:
-            return df
-
+    # The DataExtractor assembles meter frames on demand from the canonical
+    # parquet store; there is no per-SM cache anymore, so load and extract
+    # return the same data and `load_existing_only` makes no difference.
     try:
         return extractor.extract_raw_dataset_for_sm(
             meter_id=meter_id,
@@ -164,45 +163,11 @@ def _load_meter_df(
             add_unbalance=add_unbalance,
             save=False,
         )
-    except Exception as exc:
-        message = str(exc)
-        if "phase_measurements_*.csv resolved to no files" in message:
-            candidate_dirs = [
-                os.getenv("LOCAL_CSV_DATA_DIR"),
-                str(APP_ROOT.parent / "data-platform" / "data"),
-                str(APP_ROOT / "data"),
-            ]
-            checked_dirs: list[str] = []
-            for candidate in candidate_dirs:
-                if not candidate:
-                    continue
-                candidate_path = Path(candidate)
-                checked_dirs.append(str(candidate_path))
-                if not candidate_path.exists() or not candidate_path.is_dir():
-                    continue
-                if not list(candidate_path.glob("phase_measurements_*.csv")):
-                    continue
-
-                extractor._extract_csv_to_parquet(
-                    s3_path=extractor.sourcedata_dir,
-                    file_pattern="phase_measurements_*.csv",
-                    csv_dir=str(candidate_path),
-                )
-                extractor.meta_controller.complete_workflow("timeseries_csv_to_parquet")
-                return extractor.extract_raw_dataset_for_sm(
-                    meter_id=meter_id,
-                    add_current=add_current,
-                    add_unbalance=add_unbalance,
-                    save=False,
-                )
-
-            raise FileNotFoundError(
-                "No cached raw dataset was found for this meter, and local source CSV files are unavailable. "
-                "Run the Timeseries Ingestor first, place phase_measurements_*.csv files under data-platform/data, "
-                "or set LOCAL_CSV_DATA_DIR to your CSV folder before retrying drilldown. "
-                f"Checked: {', '.join(checked_dirs)}"
-            ) from exc
-        raise
+    except ValueError as exc:
+        raise ValueError(
+            f"No timeseries data found for meter {meter_id}. "
+            "Run the Timeseries Ingestor first to populate the canonical parquet store."
+        ) from exc
 
 
 def _load_group_df(
