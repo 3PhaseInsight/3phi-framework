@@ -82,6 +82,12 @@ Context manager. Always use as `with MyApp(config) as app: app.run()`.
 - `__exit__`: closes Dask client, logs any exception
 - Controllers are `@cached_property` — instantiated lazily on first access
 - Subclasses must implement `run()`
+- Workflow gating: whole-dataset apps (ingestion, cleaning) declare `WORKFLOW` +
+  `IDENTITY_KEYS` (the config keys that affect outputs) and skip when
+  `workflow_completed()` — recorded in `meta.workflow_states` under a
+  config-hashed name; `config["override"] = True` forces a re-run. Apps with
+  per-entity results (classifier, phase mapper) derive completion from their
+  result tables instead.
 
 ### BaseResource (`resources/base.py`)
 - Constructor takes a `Session`; stored as `self.s`
