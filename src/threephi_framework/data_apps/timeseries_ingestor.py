@@ -1,3 +1,5 @@
+import logging
+
 from threephi_framework.data_apps.base import BaseDataApp
 
 
@@ -20,6 +22,9 @@ class TimeseriesIngestor(BaseDataApp):
             app.run()
     """
 
+    WORKFLOW = "timeseries_csv_to_parquet_partitions"
+    IDENTITY_KEYS = ("csv_source_path", "csv_file_pattern", "parquet_destination_path")
+
     def __init__(self, config, connector=None):
         super().__init__(config, connector=connector)
         self.override = self.config["override"]
@@ -28,15 +33,15 @@ class TimeseriesIngestor(BaseDataApp):
         self.parquet_destination_path = self.config["parquet_destination_path"]
 
     def run(self):
-        workflow = "timeseries_csv_to_parquet_partitions"
-        completed = self.meta_controller.is_workflow_completed(workflow)
-        if not completed or self.override:
-            self.data_extractor.v1_csv_to_parquet_partitions(
-                csv_path=self.csv_source_path,
-                csv_file_pattern=self.csv_file_pattern,
-                bucket_dest_path=f"{self.data_extractor.s3_base}/{self.parquet_destination_path}",
-            )
-        self.meta_controller.complete_workflow(workflow)
+        if self.workflow_completed() and not self.override:
+            logging.info(f"Workflow {self.workflow_name()} already completed — skipping (set override to re-run).")
+            return
+        self.data_extractor.v1_csv_to_parquet_partitions(
+            csv_path=self.csv_source_path,
+            csv_file_pattern=self.csv_file_pattern,
+            bucket_dest_path=f"{self.data_extractor.s3_base}/{self.parquet_destination_path}",
+        )
+        self.mark_workflow_completed()
 
 
 if __name__ == "__main__":

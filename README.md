@@ -166,6 +166,34 @@ controller = TimeSeriesController(connector=MyConnector(data_dir_path="..."))
 
 ---
 
+## Workflow Gating
+
+Data apps whose work is a whole-dataset step — `TimeseriesIngestor`, `TopologyIngestor`, `TopologyCleaner` — record completion in the `meta.workflow_states` table and **skip silently on re-runs** (the log states the skip and the workflow name). This makes pipelines that chain several data apps (e.g. an Airflow DAG running `ingest >> clean >> classify`) safe to re-run: steps that already happened are not repeated.
+
+Completion is scoped to the config values that affect the app's outputs (source paths, destinations — not Dask or plotting settings). Running the same app with a different relevant config counts as a new workflow and executes normally; the workflow name carries a hash of those values, and the row's `description` column holds them as JSON for inspection:
+
+```sql
+SELECT workflow, completed, description FROM meta.workflow_states;
+```
+
+To force a re-run despite a recorded completion, set:
+
+```yaml
+override: true
+```
+
+in the app config (or reset the row: `UPDATE meta.workflow_states SET completed = false WHERE workflow = '...'`).
+
+Apps that produce per-entity results (`SMClassifier`, `StatLabeler`) do not use this mechanism — their result tables are the record of what has been processed.
+
+To opt a new data app into gating, declare two class attributes (see the `BaseDataApp` docstring):
+
+```python
+class MyIngestor(BaseDataApp):
+    WORKFLOW = "my_ingestion_step"
+    IDENTITY_KEYS = ("source_path", "destination_path")
+```
+
 ## Data Model
 
 The currently assumed datamodel is illustrated in the diagram below:
