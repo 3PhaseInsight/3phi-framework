@@ -24,10 +24,6 @@ source .venv/bin/activate
 # go into package root
 cd src
 # execute data app
-if [[ "$data_app" == "streamlit_app" ]]; then
-    streamlit run threephi_framework/data_apps/streamlit_app.py
-else
-    python -m threephi_framework.data_apps.$data_app
-fi
+python -m threephi_framework.data_apps.$data_app
 # go back up
 cd ..
