@@ -1,3 +1,5 @@
+import hashlib
+import json
 import logging
 from abc import abstractmethod
 from functools import cached_property
@@ -45,7 +47,31 @@ class BaseDataApp:
     The connector is rooted at ``config["data_dir_path"]`` (default
     ``phase_measurements/raw``) and shared with the DataExtractor and the
     TimeSeriesController.
+
+    Workflow gating
+    ---------------
+    Data apps whose work is a whole-dataset step (ingestion, cleaning) record
+    completion in ``meta.workflow_states`` so a re-run — e.g. a DAG chaining
+    several apps — can skip work that already happened. Subclasses opt in by
+    setting two class attributes:
+
+    - ``WORKFLOW``: the base workflow name (e.g. ``"topology_ingestion"``)
+    - ``IDENTITY_KEYS``: the config keys that affect the app's *outputs*
+      (paths, thresholds — not dask or plotting settings)
+
+    :meth:`workflow_name` appends a stable hash of the identity values, so the
+    same app run with a different relevant config counts as a different
+    workflow. ``config["override"] = True`` forces a re-run regardless.
+
+    Apps that produce per-entity results (classifier output per meter, phase
+    mapping per transformer) should derive completion from their result tables
+    instead of this mechanism.
     """
+
+    #: Base workflow name for completion gating; None disables the mechanism.
+    WORKFLOW: str | None = None
+    #: Config keys whose values define the workflow identity (affect outputs).
+    IDENTITY_KEYS: tuple[str, ...] = ()
 
     def __init__(self, config, connector: BaseConnector | None = None):
         self.config = config
@@ -91,6 +117,45 @@ class BaseDataApp:
                 exc_info=(exc_type, exc_value, exc_traceback),
             )
         self.close_dask()
+
+    # --- Workflow gating (see class docstring) --- #
+
+    def workflow_identity(self) -> dict:
+        """The subset of the config that defines this app's workflow identity."""
+        return {key: self.config.get(key) for key in self.IDENTITY_KEYS}
+
+    def workflow_name(self) -> str:
+        """Config-scoped workflow name: ``<WORKFLOW>:<hash of identity>``.
+
+        Apps without IDENTITY_KEYS keep the bare ``WORKFLOW`` name (and stay
+        compatible with completions recorded before config scoping existed).
+        """
+        if self.WORKFLOW is None:
+            raise NotImplementedError(f"{self.__class__.__name__} does not define a WORKFLOW name.")
+        identity = self.workflow_identity()
+        if not identity:
+            return self.WORKFLOW
+        digest = hashlib.sha256(json.dumps(identity, sort_keys=True, default=str).encode()).hexdigest()[:12]
+        return f"{self.WORKFLOW}:{digest}"
+
+    def workflow_completed(self) -> bool:
+        """True if this workflow (for this config identity) already completed.
+
+        Completions recorded under the bare ``WORKFLOW`` name (before config
+        scoping) are honored as well, so existing deployments do not re-run
+        non-idempotent steps after upgrading.
+        """
+        name = self.workflow_name()
+        if self.meta_controller.is_workflow_completed(name):
+            return True
+        return name != self.WORKFLOW and self.meta_controller.is_workflow_completed(self.WORKFLOW)
+
+    def mark_workflow_completed(self) -> None:
+        """Record completion, storing the identity JSON as the description."""
+        name = self.workflow_name()
+        description = json.dumps(self.workflow_identity(), sort_keys=True, default=str)
+        self.meta_controller.start_workflow(name, description=description)
+        self.meta_controller.complete_workflow(name)
 
     # Method to update config settings via the method arguments
     def _update_config(self, args):

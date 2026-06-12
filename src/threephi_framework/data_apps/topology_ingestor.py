@@ -1,3 +1,5 @@
+import logging
+
 from threephi_framework.data_apps.base import BaseDataApp
 
 
@@ -20,6 +22,9 @@ class TopologyIngestor(BaseDataApp):
             app.run()
     """
 
+    WORKFLOW = "topology_ingestion"
+    IDENTITY_KEYS = ("topology_source_path", "sm_cab_source_path")
+
     def __init__(self, config, connector=None):
         super().__init__(config, connector=connector)
         self.override = self.config["override"]
@@ -27,13 +32,13 @@ class TopologyIngestor(BaseDataApp):
         self.sm_cab_source_path = self.config["sm_cab_source_path"]
 
     def run(self):
-        workflow = "topology_ingestion"
-        completed = self.meta_controller.is_workflow_completed(workflow)
-        if not completed or self.override:
-            topology_ddf = self.topology_controller.read_topology(self.topology_source_path)
-            sm_cab_ddf = self.topology_controller.read_sm_cab(self.sm_cab_source_path)
-            self.topology_controller.ingest(topology_ddf, sm_cab_ddf)
-        self.meta_controller.complete_workflow(workflow)
+        if self.workflow_completed() and not self.override:
+            logging.info(f"Workflow {self.workflow_name()} already completed — skipping (set override to re-run).")
+            return
+        topology_ddf = self.topology_controller.read_topology(self.topology_source_path)
+        sm_cab_ddf = self.topology_controller.read_sm_cab(self.sm_cab_source_path)
+        self.topology_controller.ingest(topology_ddf, sm_cab_ddf)
+        self.mark_workflow_completed()
 
 
 if __name__ == "__main__":
