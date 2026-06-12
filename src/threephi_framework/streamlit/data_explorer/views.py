@@ -98,9 +98,9 @@ def _get_meter_inventory_preview(limit: int = 2000) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def _get_raw_parquet_inventory(data_dir_path: str) -> tuple[dict, pd.DataFrame, pd.DataFrame]:
-    """Summarize raw parquet inventory under the configured S3 data directory."""
+    """Summarize the raw parquet inventory under the configured data directory."""
     extractor = get_extractor(data_dir_path=data_dir_path)
-    base = f"s3://3phi/{data_dir_path.strip('/')}"
+    base = extractor.s3_connector.dataset_root_path
     parquet_paths = sorted(extractor.s3_connector.glob(f"{base}/dt=*/shard=*/*.parquet"))
 
     by_date: dict[str, int] = {}

@@ -49,8 +49,8 @@ def _format_stat_labeler_result_option(path: str) -> str:
 @st.cache_data(show_spinner=False)
 def _list_stat_labeler_result_files(data_dir_path: str) -> tuple[list[str], dict[str, str]]:
     extractor = get_extractor(data_dir_path=data_dir_path)
-    hp_paths = sorted(extractor.s3_connector.glob("s3://3phi/stat_labeler/heat_pump_results_*.json"))
-    meta_paths = sorted(extractor.s3_connector.glob("s3://3phi/stat_labeler/meta_results_*.json"))
+    hp_paths = sorted(extractor.s3_connector.glob(f"{extractor.s3_base}/stat_labeler/heat_pump_results_*.json"))
+    meta_paths = sorted(extractor.s3_connector.glob(f"{extractor.s3_base}/stat_labeler/meta_results_*.json"))
 
     hp_paths = list(reversed(hp_paths))
     meta_by_stamp = {
@@ -495,6 +495,7 @@ def run_stat_labeler(
 ) -> dict:
     workers = _validate_workers(n_workers)
     normalized_sm_ids = _normalize_sm_ids(sm_ids)
+    storage_base = get_extractor(data_dir_path=data_dir_path).s3_base
     cfg = {
         "dask": {"local": True, "n_workers": workers},
         "sm_ids": normalized_sm_ids,
@@ -507,8 +508,8 @@ def run_stat_labeler(
         "save_meta_results": save_meta_results,
         "data_dir_path": data_dir_path,
         "thresholds": thresholds,
-        "results_dir": "s3://3phi/stat_labeler",
-        "weather_file": "s3://3phi/stat_labeler/data/weather_data.csv",
+        "results_dir": f"{storage_base}/stat_labeler",
+        "weather_file": f"{storage_base}/stat_labeler/data/weather_data.csv",
         "weather_file_local": weather_file_local,
     }
     with StatLabeler(cfg) as app:
