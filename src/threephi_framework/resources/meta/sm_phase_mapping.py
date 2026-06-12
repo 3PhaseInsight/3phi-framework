@@ -38,8 +38,6 @@ class MetaPhaseMappingResource(BaseResource):
         if not meter_ids:
             return None
 
-        stmt = delete(MetaPhaseMappingModel).where(
-            MetaPhaseMappingModel.meter_id.in_(meter_ids)
-        )
+        stmt = delete(MetaPhaseMappingModel).where(MetaPhaseMappingModel.meter_id.in_(meter_ids))
 
         return self.s.execute(stmt)

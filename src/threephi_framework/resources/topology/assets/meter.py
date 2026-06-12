@@ -1,14 +1,9 @@
-from sqlalchemy import BigInteger, Boolean, Integer, Numeric, literal, select, text, true, union_all
+from sqlalchemy import BigInteger, Boolean, Numeric, select, text
 from sqlalchemy.dialects.postgresql import insert
 
 from threephi_framework.models.topology.assets.delivery_point import DeliveryPointModel
-from threephi_framework.models.topology.assets.feeder import FeederModel
 from threephi_framework.models.topology.assets.meter import MeterModel
-from threephi_framework.models.topology.assets.transformer import TransformerModel
-from threephi_framework.models.topology.utilities import EdgeCurrentModel, NodeCurrentModel
 from threephi_framework.resources.base import BaseResource
-
-import logging
 
 
 class MeterResource(BaseResource):
@@ -104,7 +99,7 @@ class MeterResource(BaseResource):
         """)
 
         result = self.s.execute(sql, {"substation_id": int(substation_id)})
-        return [dict(r) for r in result.mappings().all()]  
+        return [dict(r) for r in result.mappings().all()]
 
     def get_meters_for_transformer(self, transformer_id: int) -> list[dict]:
         """
@@ -265,7 +260,6 @@ class MeterResource(BaseResource):
 
         result = self.s.execute(stmt.order_by(MeterModel.id))
         return [dict(r) for r in result.mappings().all()]
-    
 
     def get_topology_chain_for_meter(self, meter_id: int):
         sql = text("""
@@ -277,7 +271,7 @@ class MeterResource(BaseResource):
               ),
 
               dp AS (
-                SELECT 
+                SELECT
                     m.id AS meter_id,
                     m.delivery_point_id
                 FROM lv.meter m
