@@ -9,9 +9,9 @@ from sqlalchemy.orm import Session
 from threephi_framework.models.meta.run_result import RunResultModel
 from threephi_framework.resources.meta.meter import MetaMeterResource
 from threephi_framework.resources.meta.run_result import RunResultResource
+from threephi_framework.resources.meta.sm_phase_mapping import MetaPhaseMappingResource
 from threephi_framework.resources.meta.workflow_state import WorkflowStateResource
 from threephi_framework.resources.topology.assets.meter import MeterResource
-from threephi_framework.resources.meta.sm_phase_mapping import MetaPhaseMappingResource
 
 
 class MetaController:
@@ -65,9 +65,7 @@ class MetaController:
 
         missing_cols = [col for col in required_cols if col not in trafo_results.columns]
         if missing_cols:
-            raise ValueError(
-                f"Cannot update phase mapping. Missing columns in trafo_results: {missing_cols}"
-            )
+            raise ValueError(f"Cannot update phase mapping. Missing columns in trafo_results: {missing_cols}")
 
         def _clean_int(value):
             if pd.isna(value):
@@ -123,20 +121,11 @@ class MetaController:
             logging.warning(f"No valid phase mapping rows to update for transformer {trafo_id}.")
             return
 
-        s = self._sf()
-        try:
+        with self._sf() as s:
             MetaPhaseMappingResource(s).upsert_many(rows)
             s.commit()
-        except Exception:
-            s.rollback()
-            raise
-        finally:
-            s.close()
 
-        logging.info(
-            f"Updated phase mapping for transformer {trafo_id}. "
-            f"Rows written: {len(rows)}"
-        )
+        logging.info(f"Updated phase mapping for transformer {trafo_id}. Rows written: {len(rows)}")
 
     def update_sm_characterization(self, meter_id: int, data: dict) -> None:
         """
