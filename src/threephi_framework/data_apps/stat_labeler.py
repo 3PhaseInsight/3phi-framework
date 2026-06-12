@@ -7,7 +7,6 @@ from dask import compute, delayed
 
 from threephi_framework.data_apps.base import BaseDataApp
 from threephi_framework.data_apps.base_config import BaseConfig
-from threephi_framework.dtu.stat_labeler import label_meters
 
 
 @dataclass(frozen=True)
@@ -26,22 +25,19 @@ class StatLabelerConfig(BaseConfig):
     weather_file: str
     weather_file_local: str
     save_meta_results: bool
+    # Optional backend selector for workers ("s3" / "azure"); None falls back to
+    # the OBJECT_STORAGE_BACKEND env var, then "s3".
+    object_storage_backend: str | None = None
 
 
 class StatLabeler(BaseDataApp):
     # Initialization method which is automatically called when creating an instance of this class
-    def __init__(self, config):
+    def __init__(self, config, connector=None):
         # Set up the config settings from the parent class
         # set up batch, profile_processing_level, result_name, dask client, logger, and data extractor
-        super().__init__(config)
+        super().__init__(config, connector=connector)
 
         self.config = StatLabelerConfig(**config)
-
-    # Method to update config settings via the method arguments
-    def _update_config(self, args):
-        for arg_name, arg_value in args:
-            if arg_name != "self" and arg_value is not None:
-                setattr(self, arg_name, arg_value)
 
     # Method to check for previous results in earlier results files
     def _check_previous_results(self, results_path, sm_id, heat_pump_returns):
@@ -62,8 +58,8 @@ class StatLabeler(BaseDataApp):
 
     # Method to perform statistical labeling of heat pumps in smart meter data
     def stat_label_sm(self) -> dict:
-        # Overwrite config settings with arguments if provided (allows to dynamically change data app run in pipeline)
-        self._update_config(args=locals().items())
+        # Deferred so importing the package does not require scipy/sklearn/statsmodels
+        from threephi_framework.dtu.stat_labeler import label_meters
 
         # Put weather_file to stat_labeler bucket
         if not self.data_extractor.s3_connector.exists(self.config.weather_file):
@@ -94,8 +90,6 @@ class StatLabeler(BaseDataApp):
             sm_id_chunks = np.array_split(sm_to_process, min(len(sm_to_process), self.config.dask["n_workers"]))
             cfg = self.config.to_dict()
             delayed_tasks = [delayed(label_meters)(sm_ids_chunk, sm_with_hp, cfg) for sm_ids_chunk in sm_id_chunks]
-            # meta_results_list = compute(*delayed_tasks)
-
             results = compute(*delayed_tasks)
             meta_results_list = [r[0] for r in results]
             heat_pump_list = [r[1] for r in results]
@@ -119,9 +113,9 @@ class StatLabeler(BaseDataApp):
                 path=f"{self.config.results_dir}/heat_pump_results_{now}.json", data=heat_pump_merged
             )
 
-            labels_returns = {sm_id: heat_pump_returns.get(sm_id) for sm_id in self.config.sm_ids}
-
-            return labels_returns
+        # Also covers the case where every meter already had results: return the
+        # labels loaded from earlier result files instead of None.
+        return {sm_id: heat_pump_returns.get(sm_id) for sm_id in self.config.sm_ids}
 
     def run(self):
         self.stat_label_sm()

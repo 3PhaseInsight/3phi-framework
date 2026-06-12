@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import tempfile
 from concurrent.futures import as_completed
 from concurrent.futures.thread import ThreadPoolExecutor
 from typing import Any
@@ -35,6 +34,7 @@ class AzureBlobConnector(BaseConnector):
         self.container_name = os.environ["AZURE_STORAGE_CONTAINER_NAME"]
 
         self.az_base = f"az://{self.container_name}"
+        self.storage_base = self.az_base
         self.dataset_root_path = f"{self.az_base}/{data_dir_path}"
 
         # account_key=None causes adlfs to use DefaultAzureCredential automatically,
@@ -176,52 +176,4 @@ class AzureBlobConnector(BaseConnector):
             opts["account_key"] = self.account_key
         return opts
 
-    # === Plotting ===
-
-    def save_plot(
-        self,
-        path: str,
-        fig: Any,
-        format: str = "svg",
-        transparent: bool = False,
-        dpi: int = 300,
-        overwrite: bool = True,
-        save_kwargs: dict | None = None,
-    ) -> None:
-        """
-        Save a matplotlib figure to Azure Blob Storage.
-
-        Args:
-            path: Destination blob path, e.g. "az://container/plots/plot1.svg"
-            fig: Matplotlib figure object.
-            format: "svg" or "png".
-            transparent: Whether the background should be transparent.
-            dpi: Resolution for PNG output.
-            overwrite: Skip saving if the blob already exists and overwrite=False.
-            save_kwargs: Additional kwargs forwarded to fig.savefig().
-        """
-        fmt = format.lower()
-        if fmt not in {"svg", "png"}:
-            raise ValueError(f"Unsupported format: {fmt}")
-        if not isinstance(transparent, bool):
-            raise ValueError("transparent must be a boolean value.")
-        if not path.endswith(f".{fmt}"):
-            raise ValueError(f"path must end with .{fmt}")
-        if not overwrite and self.fs.exists(path):
-            logging.info("Plot %s already exists and overwrite=False. Skipping.", path)
-            return
-
-        kwargs: dict[str, Any] = {"format": fmt, "bbox_inches": "tight", "transparent": transparent}
-        if fmt == "png":
-            kwargs["dpi"] = dpi
-        if save_kwargs is not None:
-            if not isinstance(save_kwargs, dict):
-                raise ValueError("save_kwargs must be a dictionary.")
-            kwargs.update(save_kwargs)
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            local_path = os.path.join(tmpdir, os.path.basename(path))
-            fig.savefig(local_path, **kwargs)
-            self.put_file(local_path, path)
-
-        logging.info("Plot saved to %s.", path)
+    # === Plotting: save_plot inherited from BaseConnector ===

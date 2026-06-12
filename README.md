@@ -95,6 +95,24 @@ The script will install the dependencies in [requirements.txt](requirements.txt)
 
 The framework abstracts object storage behind `BaseConnector` so data apps are decoupled from the underlying storage backend. Two implementations are provided out of the box.
 
+### Choosing the backend
+
+Every data app works against a single connector, resolved in this order:
+
+1. **Dependency injection** — pass any `BaseConnector` instance to the data app:
+   ```python
+   from threephi_framework import AzureBlobConnector, SMClassifier
+
+   connector = AzureBlobConnector(data_dir_path="phase_measurements/raw")
+   with SMClassifier(config, connector=connector) as app:
+       app.run()
+   ```
+2. **Config key** — set `object_storage_backend: "s3" | "azure"` in the data app config (e.g. in a DAG's YAML); the connector is built by `create_connector()`.
+3. **Environment variable** — `OBJECT_STORAGE_BACKEND` (same values), useful to switch a whole deployment.
+4. **Default** — `"s3"`.
+
+The connector is rooted at `config["data_dir_path"]` (default `phase_measurements/raw`) and shared by the data app's `DataExtractor` and `TimeSeriesController`. Functions that run on Dask workers reconstruct the connector from the backend name carried in their config, so backends swap consistently across the cluster.
+
 ### S3Connector
 
 For AWS S3 or any S3-compatible storage (the default local dev setup uses **MinIO**).
