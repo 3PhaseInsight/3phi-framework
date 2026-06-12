@@ -1254,19 +1254,27 @@ def identify_sm_topology(trafo_ids, cfg, sm_topology_mapping):
         try:
             logging.info(f"[Transformer {trafo_id}] Start smart meter topology identification...")
 
+            # TODO: Re-verify whether TopologyController.get_meters_for_transformer can replace this
+            # lookup (it was reported broken when the workaround via sm_topology_mapping was added;
+            # the topology chain query has been rewritten since).
             sm_ids_from_trafo = sm_topology_mapping.loc[
                 sm_topology_mapping["Transformer ID"] == int(trafo_id), "Meter ID"
             ].tolist()
             logging.info(f"SMs below trafo {trafo_id}: {sm_ids_from_trafo}")
 
             # Collect phases the SM classifier marked as unconnected; they are
-            # excluded from clustering and flagged in the results
+            # excluded from clustering and flagged in the results.
+            # TODO: When a meter has no SM classification yet (Data Quality is None), trigger the
+            # SMClassifier for it (e.g. as an upstream DAG task) instead of silently treating all
+            # of its phases as connected.
             unconnected_phases = []
             for sm_id in sm_ids_from_trafo:
                 sm_topology_info = meta_controller.get_sm_characterization(sm_id)
                 unconnected_phases.extend(_unconnected_phase_labels(sm_topology_info, sm_id))
 
-            # Load raw sm phase voltage time series of all SMs below current transformer trafo_id
+            # Load raw sm phase voltage time series of all SMs below current transformer trafo_id.
+            # TODO: Support selecting a timeseries processing level (currently always RAW); pass a
+            # ProcessingLevel to get_time_series_data once the mapper should run on cleaned data.
             sm_ids_str = [str(sm_id) for sm_id in sm_ids_from_trafo]
             trafo_data_df = timeseries_controller.get_time_series_data(meter_ids=sm_ids_str)
             trafo_data_df = trafo_data_df.compute()
