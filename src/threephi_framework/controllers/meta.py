@@ -23,19 +23,15 @@ class MetaController:
     - Methods to compute and return a smart meter characterization summary
     - Methods to insert and query run results
     - Airflow-aware convenience methods for automatically resolving dag_id/run_id
-    - Access points to topology and metadata resource layers
+
+    Each public method creates its own short-lived session via ``session_factory``
+    and owns the transaction boundary (commits on write methods, no commit on
+    read methods). This matches :class:`IngestionController` and avoids holding
+    long-lived sessions across DAG runs.
 
     Args:
         session_factory (Callable[[], Session]):
             A factory returning new SQLAlchemy sessions.
-
-    Attributes:
-        meta_meter_resource (MetaMeterResource):
-            Resource for CRUD operations on smart meter metadata tables.
-        run_result_resource (RunResultResource):
-            Resource for inserting and querying run results.
-        topology_meter_resource (MeterResource):
-            Resource for querying topology assets associated with meters.
     """
 
     def __init__(self, session_factory: Callable[[], Session]):
@@ -47,9 +43,6 @@ class MetaController:
                 Factory that returns new SQLAlchemy sessions.
         """
         self._sf = session_factory
-        self.meta_meter_resource = MetaMeterResource(self._sf())
-        self.run_result_resource = RunResultResource(self._sf())
-        self.topology_meter_resource = MeterResource(self._sf())
 
     def update_sm_characterization(self, meter_id: int, data: dict) -> None:
         """
@@ -77,7 +70,9 @@ class MetaController:
             "connectivity": data["Connectivity"],
         }
         logging.info(f"With Data: {meter_data}")
-        self.meta_meter_resource.update(meter_id, meter_data)
+        with self._sf() as s:
+            MetaMeterResource(s).update(meter_id, meter_data)
+            s.commit()
 
     def get_sm_characterization(self, meter_id: int) -> dict[str, Any]:
         """
@@ -101,65 +96,71 @@ class MetaController:
                 A dictionary containing topology, availability, quality,
                 statistics, and connectivity details.
         """
-        topology_chain_result = self.topology_meter_resource.get_topology_chain_for_meter(meter_id=meter_id)
-        if not topology_chain_result:
-            topology_chain = {
-                "Secondary Substation ID": None,
-                "Transformer ID": None,
-                "Feeder ID": None,
-                "Cabinet ID": None,
-            }
-        else:
-            first = topology_chain_result[0]
-            rest = topology_chain_result[1:]
+        with self._sf() as s:
+            meta_meter = MetaMeterResource(s)
+            topology_meter = MeterResource(s)
 
-            topology_chain = {
-                "Secondary Substation ID": first.secondary_substation_id,
-                "Transformer ID": first.transformer_id,
-                "Delivery Point ID": first.delivery_point_id,
-                "Feeder ID": first.feeder_id,
-                "Cabinet ID": first.cabinet_id,
-                "Additional Feeder IDs": [r.feeder_id for r in rest],
-                "Additional Cabinet IDs": [r.cabinet_id for r in rest],
-            }
+            topology_chain_result = topology_meter.get_topology_chain_for_meter(meter_id=meter_id)
+            if not topology_chain_result:
+                topology_chain = {
+                    "Secondary Substation ID": None,
+                    "Transformer ID": None,
+                    "Feeder ID": None,
+                    "Cabinet ID": None,
+                }
+            else:
+                first = topology_chain_result[0]
+                rest = topology_chain_result[1:]
 
-        meta = self.meta_meter_resource.get(meter_id)
+                topology_chain = {
+                    "Secondary Substation ID": first.secondary_substation_id,
+                    "Transformer ID": first.transformer_id,
+                    "Delivery Point ID": first.delivery_point_id,
+                    "Feeder ID": first.feeder_id,
+                    "Cabinet ID": first.cabinet_id,
+                    "Additional Feeder IDs": [r.feeder_id for r in rest],
+                    "Additional Cabinet IDs": [r.cabinet_id for r in rest],
+                }
 
-        if meta is None:
-            logging.warning("Cannot fetch SM Characterization for non-existent meter!")
+            meta = meta_meter.get(meter_id)
+
+            if meta is None:
+                logging.warning("Cannot fetch SM Characterization for non-existent meter!")
+
+                dataset_availability = {
+                    "Available": False,
+                    "Contains Data": None,
+                    "Relative Length": None,
+                    "Absolute Length": None,
+                }
+
+                return {
+                    "Topology": topology_chain,
+                    "Dataset Availability": dataset_availability,
+                    "Data Quality": None,
+                    "Data Statistics": None,
+                    "Connectivity": None,
+                }
+
+            max_total_rows = meta_meter.get_max_total_rows()
+            relative_length = (
+                None if max_total_rows is None or max_total_rows == 0 else meta.total_rows / max_total_rows
+            )
 
             dataset_availability = {
-                "Available": False,
-                "Contains Data": None,
-                "Relative Length": None,
-                "Absolute Length": None,
+                "Available": True,
+                "Contains Data": meta.total_rows > 0,
+                "Relative Length": relative_length,
+                "Absolute Length": meta.total_rows,
             }
 
             return {
                 "Topology": topology_chain,
                 "Dataset Availability": dataset_availability,
-                "Data Quality": None,
-                "Data Statistics": None,
-                "Connectivity": None,
+                "Data Quality": meta.data_quality,
+                "Data Statistics": meta.data_statistics,
+                "Connectivity": meta.connectivity,
             }
-
-        max_total_rows = self.meta_meter_resource.get_max_total_rows()
-        relative_length = None if max_total_rows is None or max_total_rows == 0 else meta.total_rows / max_total_rows
-
-        dataset_availability = {
-            "Available": True,
-            "Contains Data": meta.total_rows > 0,
-            "Relative Length": relative_length,
-            "Absolute Length": meta.total_rows,
-        }
-
-        return {
-            "Topology": topology_chain,
-            "Dataset Availability": dataset_availability,
-            "Data Quality": meta.data_quality,
-            "Data Statistics": meta.data_statistics,
-            "Connectivity": meta.connectivity,
-        }
 
     def insert_run_result(
         self,
@@ -238,7 +239,10 @@ class MetaController:
         if id is not None:
             payload["id"] = id
 
-        return self.run_result_resource.insert(payload)
+        with self._sf() as s:
+            obj = RunResultResource(s).insert(payload)
+            s.commit()
+            return obj
 
     def get_run_result(self, result_id: UUID):
         """
@@ -252,7 +256,8 @@ class MetaController:
             RunResultModel | None:
                 The run result if found, otherwise ``None``.
         """
-        return self.run_result_resource.get(result_id)
+        with self._sf() as s:
+            return RunResultResource(s).get(result_id)
 
     def query_run_results(
         self,
@@ -346,25 +351,26 @@ class MetaController:
 
             order_cols = [allowed[f] for f in fields]
 
-        return self.run_result_resource.query(
-            dag_id=dag_id,
-            run_id=run_id,
-            meter_id=meter_id,
-            phase=phase,
-            label_type=label_type,
-            label_value=label_value,
-            source=source,
-            topology_version=topology_version,
-            node_id=node_id,
-            edge_id=edge_id,
-            cable_id=cable_id,
-            min_confidence=min_confidence,
-            max_confidence=max_confidence,
-            limit=limit,
-            offset=offset,
-            order_by=order_cols,
-            descending=descending,
-        )
+        with self._sf() as s:
+            return RunResultResource(s).query(
+                dag_id=dag_id,
+                run_id=run_id,
+                meter_id=meter_id,
+                phase=phase,
+                label_type=label_type,
+                label_value=label_value,
+                source=source,
+                topology_version=topology_version,
+                node_id=node_id,
+                edge_id=edge_id,
+                cable_id=cable_id,
+                min_confidence=min_confidence,
+                max_confidence=max_confidence,
+                limit=limit,
+                offset=offset,
+                order_by=order_cols,
+                descending=descending,
+            )
 
     @staticmethod
     def _get_airflow_dag_and_run_id() -> tuple[str, str]:
@@ -385,7 +391,7 @@ class MetaController:
                 resolved from the current context.
         """
         try:
-            from airflow.operators.python import get_current_context
+            from airflow.providers.standard.operators.python import get_current_context
         except Exception as e:  # pragma: no cover
             raise RuntimeError("Airflow is not available; cannot resolve DAG context.") from e
 
@@ -483,25 +489,29 @@ class MetaController:
                 ``total_rows``. Typically the output of a per-meter aggregation
                 over an ingested time series file.
         """
-        self.meta_meter_resource.upsert_meter_stats(df)
+        with self._sf() as s:
+            MetaMeterResource(s).upsert_meter_stats(df)
+            s.commit()
 
     def is_workflow_completed(self, workflow: str) -> bool:
-        return WorkflowStateResource(self._sf()).is_completed(workflow)
+        with self._sf() as s:
+            return WorkflowStateResource(s).is_completed(workflow)
 
     def start_workflow(self, workflow: str, description: str | None = None) -> None:
         logging.info("Starting workflow: %s", workflow)
-        s = self._sf()
-        WorkflowStateResource(s).get_or_create(workflow, description)
-        s.commit()
+        with self._sf() as s:
+            WorkflowStateResource(s).get_or_create(workflow, description)
+            s.commit()
 
     def complete_workflow(self, workflow: str) -> None:
         logging.info("Completing workflow: %s", workflow)
-        s = self._sf()
-        WorkflowStateResource(s).mark_completed(workflow)
-        s.commit()
+        with self._sf() as s:
+            WorkflowStateResource(s).mark_completed(workflow)
+            s.commit()
 
     def get_time_series_meta_info(self) -> dict[str, Any]:
-        min_ts, max_ts, meter_ids = self.meta_meter_resource.get_timeseries_info()
+        with self._sf() as s:
+            min_ts, max_ts, meter_ids = MetaMeterResource(s).get_timeseries_info()
         return {
             "min_timestamp": min_ts,
             "max_timestamp": max_ts,

@@ -12,6 +12,9 @@ license = { text = "MIT" }
 authors = [{ name = "Christian Fotteler", email = "chris@inilab.dk" }]
 dependencies = []
 
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
@@ -49,3 +52,7 @@ select = [
 [tool.ruff.format]
 quote-style = "double"
 skip-magic-trailing-comma = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

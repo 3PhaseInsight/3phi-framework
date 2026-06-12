@@ -1,7 +1,7 @@
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from threephi_framework.models.meta.run_result import RunResultModel
@@ -14,18 +14,17 @@ class RunResultResource(BaseResource):
 
     def insert(self, data: dict[str, Any]) -> RunResultModel:
         """
-        Insert a new run_result row and commit immediately.
+        Add a new run_result row to the session (the caller owns the commit).
 
         Notes:
         - Generates a UUID if `id` is not provided.
-        - Raises on constraint violations (FK, NOT NULL, etc.).
+        - Raises on constraint violations (FK, NOT NULL, etc.) at flush/commit time.
         """
         payload = dict(data)
         payload.setdefault("id", uuid.uuid4())
 
         obj = RunResultModel(**payload)
         self.s.add(obj)
-        self.s.commit()
 
         return obj
 
@@ -104,3 +103,42 @@ class RunResultResource(BaseResource):
             stmt = stmt.limit(limit)
 
         return list(self.s.execute(stmt).scalars().all())
+
+    def get_latest_for_meter(
+        self,
+        *,
+        dag_id: str,
+        meter_id: int,
+    ) -> list[RunResultModel]:
+        """
+        Return all run_result rows belonging to the most recent run_id that
+        produced a row for (dag_id, meter_id), ordered by created_at DESC.
+
+        Returns an empty list if no rows exist for that pair.
+
+        "Most recent" is determined by RunResultModel.created_at (added in
+        migration 09_run_result_created_at).
+        """
+        latest_run_id_stmt = (
+            select(RunResultModel.run_id)
+            .where(
+                RunResultModel.dag_id == dag_id,
+                RunResultModel.meter_id == meter_id,
+            )
+            .order_by(desc(RunResultModel.created_at))
+            .limit(1)
+        )
+        latest_run_id = self.s.execute(latest_run_id_stmt).scalar_one_or_none()
+        if latest_run_id is None:
+            return []
+
+        rows_stmt = (
+            select(RunResultModel)
+            .where(
+                RunResultModel.dag_id == dag_id,
+                RunResultModel.meter_id == meter_id,
+                RunResultModel.run_id == latest_run_id,
+            )
+            .order_by(desc(RunResultModel.created_at))
+        )
+        return list(self.s.execute(rows_stmt).scalars().all())

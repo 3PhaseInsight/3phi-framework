@@ -16,7 +16,7 @@ class IngestBatchResource(BaseResource):
         obj = IngestBatchModel(
             id=uuid.uuid4(),
             source_file=source_file,
-            status="pending",
+            status="in_progress",
             run_id=run_id,
         )
         self.s.add(obj)
@@ -34,10 +34,10 @@ class IngestBatchResource(BaseResource):
         return self.s.execute(stmt).scalar_one_or_none()
 
     def mark_processing(self, batch_id: uuid.UUID) -> None:
-        self._set_status(batch_id, "processing")
+        self._set_status(batch_id, "in_progress")
 
     def mark_complete(self, batch_id: uuid.UUID, stats_json: dict[str, Any] | None = None) -> None:
-        values: dict[str, Any] = {"status": "complete"}
+        values: dict[str, Any] = {"status": "processed"}
         if stats_json is not None:
             values["stats_json"] = stats_json
         self.s.execute(update(IngestBatchModel).where(IngestBatchModel.id == batch_id).values(values))

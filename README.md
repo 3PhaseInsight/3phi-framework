@@ -4,7 +4,8 @@ Utility classes for **DB** access, **S3** interactions, and **data processing** 
 Distributed on PyPi.
 
 > **Install name:** `3phi-framework`  
-> **Import package:** `threephi_framework`
+> **Import package:** `threephi_framework`  
+> **Used by:** [3-Phase-Insight Data Platform](https://github.com/3PhaseInsight/data-platform)
 
 ---
 
@@ -59,20 +60,23 @@ To set up your environment for local development, follow these steps:
 
 [execute_data_app.sh](execute_data_app.sh) expects a virtual environment to be set up under [.venv]. See the [python docs](https://docs.python.org/3/library/venv.html) on how to set it up.
 
-### Seed data
+### Seed data (optional)
 
-Obtain seed data for the database and the object storage and copy it to:
-- [3_db_seed.sql](docker/db/init/3_db_seed.sql): This should be a sql dump/snapshot of a working 3phi Database, PSQL will automatically seed the DB when it is created using docker compose.
-- [3phi](docker/object_storage/3phi): This should be a copy of a bucket from a working object storage. It will be mounted in the minio object storage as a bucket.
+The database **schema** is provisioned automatically from the canonical sqitch migrations, so you do
+not need to supply it. Seed *data* is optional:
+- Database: place a data-only dump at [docker/db/seed/seed.sql](docker/db/seed/seed.sql) (gitignored). See [docker/db/seed/README.md](docker/db/seed/README.md) for how to generate it; it is loaded by `make up-seeded`.
+- Object storage: copy a bucket from a working object storage to [3phi](docker/object_storage/3phi); it is mounted as a MinIO bucket.
 
 ### Spin up DB and Object Storage
 
-Navigate to [docker](./docker) and run 
+Navigate to [docker](./docker) and run
 ```
-docker compose up -d
+make up          # schema only (empty tables)
+make up-seeded   # schema + load docker/db/seed/seed.sql if present
 ```
 
-This will bring up a local DB and a MinIO Object Storage seeded with the data you provided.
+This brings up a local Postgres (schema deployed from the canonical sqitch migrations) and a MinIO
+Object Storage. See [docker/README.md](docker/README.md) for details.
 
 ### Run a data app locally
 
@@ -90,6 +94,24 @@ The script will install the dependencies in [requirements.txt](requirements.txt)
 ## Object Storage Connectors
 
 The framework abstracts object storage behind `BaseConnector` so data apps are decoupled from the underlying storage backend. Two implementations are provided out of the box.
+
+### Choosing the backend
+
+Every data app works against a single connector, resolved in this order:
+
+1. **Dependency injection** — pass any `BaseConnector` instance to the data app:
+   ```python
+   from threephi_framework import AzureBlobConnector, SMClassifier
+
+   connector = AzureBlobConnector(data_dir_path="phase_measurements/raw")
+   with SMClassifier(config, connector=connector) as app:
+       app.run()
+   ```
+2. **Config key** — set `object_storage_backend: "s3" | "azure"` in the data app config (e.g. in a DAG's YAML); the connector is built by `create_connector()`.
+3. **Environment variable** — `OBJECT_STORAGE_BACKEND` (same values), useful to switch a whole deployment.
+4. **Default** — `"s3"`.
+
+The connector is rooted at `config["data_dir_path"]` (default `phase_measurements/raw`) and shared by the data app's `DataExtractor` and `TimeSeriesController`. Functions that run on Dask workers reconstruct the connector from the backend name carried in their config, so backends swap consistently across the cluster.
 
 ### S3Connector
 
@@ -143,6 +165,34 @@ controller = TimeSeriesController(connector=MyConnector(data_dir_path="..."))
 ```
 
 ---
+
+## Workflow Gating
+
+Data apps whose work is a whole-dataset step — `TimeseriesIngestor`, `TopologyIngestor`, `TopologyCleaner` — record completion in the `meta.workflow_states` table and **skip silently on re-runs** (the log states the skip and the workflow name). This makes pipelines that chain several data apps (e.g. an Airflow DAG running `ingest >> clean >> classify`) safe to re-run: steps that already happened are not repeated.
+
+Completion is scoped to the config values that affect the app's outputs (source paths, destinations — not Dask or plotting settings). Running the same app with a different relevant config counts as a new workflow and executes normally; the workflow name carries a hash of those values, and the row's `description` column holds them as JSON for inspection:
+
+```sql
+SELECT workflow, completed, description FROM meta.workflow_states;
+```
+
+To force a re-run despite a recorded completion, set:
+
+```yaml
+override: true
+```
+
+in the app config (or reset the row: `UPDATE meta.workflow_states SET completed = false WHERE workflow = '...'`).
+
+Apps that produce per-entity results (`SMClassifier`, `StatLabeler`) do not use this mechanism — their result tables are the record of what has been processed.
+
+To opt a new data app into gating, declare two class attributes (see the `BaseDataApp` docstring):
+
+```python
+class MyIngestor(BaseDataApp):
+    WORKFLOW = "my_ingestion_step"
+    IDENTITY_KEYS = ("source_path", "destination_path")
+```
 
 ## Data Model
 

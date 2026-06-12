@@ -1,7 +1,9 @@
+import os
 import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Float, Integer, Text
+from sqlalchemy import BigInteger, DateTime, Float, Integer, Text, text
 from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -18,7 +20,7 @@ ResultPhaseEnum = ENUM(
     "L2,L3",
     "all",
     name="result_phase",
-    schema="public",
+    schema=os.getenv("META_SCHEMA", "meta"),
     create_type=False,
 )
 
@@ -64,3 +66,9 @@ class RunResultModel(MetaSchemaMixin, BaseModel):
     node_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     edge_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     cable_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )

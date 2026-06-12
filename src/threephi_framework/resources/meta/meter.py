@@ -13,9 +13,7 @@ class MetaMeterResource(BaseResource):
 
     def update(self, meter_id: int, data: dict):
         stmt = update(MetaMeterModel).where(MetaMeterModel.id == meter_id).values(data)
-        result = self.s.execute(stmt)
-        self.s.commit()
-        return result
+        return self.s.execute(stmt)
 
     def get(self, meter_id: int) -> MetaMeterModel | None:
         return self.s.get(MetaMeterModel, meter_id)
@@ -23,6 +21,23 @@ class MetaMeterResource(BaseResource):
     def get_max_total_rows(self) -> int:
         stmt = select(func.max(MetaMeterModel.total_rows))
         return self.s.execute(stmt).scalar_one()
+
+    def get_meter_ids_with_data(self, meter_ids: list[int]) -> set[int]:
+        """Return the subset of ``meter_ids`` that have timeseries data.
+
+        A meter "has data" when its ``total_rows`` is greater than zero, matching the
+        "Contains Data" flag used in :meth:`MetaController.get_sm_characterization`.
+
+        Args:
+            meter_ids: Meter IDs to check.
+
+        Returns:
+            set[int]: The meter IDs from the input that have ``total_rows > 0``.
+        """
+        if not meter_ids:
+            return set()
+        stmt = select(MetaMeterModel.id).where(MetaMeterModel.id.in_(meter_ids)).where(MetaMeterModel.total_rows > 0)
+        return set(self.s.execute(stmt).scalars().all())
 
     def upsert_meter_stats(self, df: pd.DataFrame) -> None:
         """
@@ -46,7 +61,6 @@ class MetaMeterResource(BaseResource):
             },
         )
         self.s.execute(stmt)
-        self.s.commit()
 
     def get_timeseries_info(self) -> tuple:
         # min(first_seen), max(last_seen)

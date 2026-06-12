@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import os
+import tempfile
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -8,6 +11,22 @@ import pandas as pd
 
 
 class BaseConnector(ABC):
+    #: Fully-qualified root of the dataset this connector is bound to,
+    #: e.g. ``s3://3phi/phase_measurements/raw`` or ``az://3phi/phase_measurements/raw``.
+    dataset_root_path: str
+    #: Root URI of the underlying bucket/container, e.g. ``s3://3phi`` or ``az://3phi``.
+    #: Use this instead of hardcoding a scheme so code stays backend-agnostic.
+    storage_base: str
+
+    def with_data_dir(self, data_dir_path: str) -> BaseConnector:
+        """Return a connector of the same type rooted at a different ``data_dir_path``.
+
+        Relies on the ``__init__(data_dir_path)`` convention shared by the built-in
+        connectors (credentials come from the environment). Subclasses with a
+        different constructor signature must override this method.
+        """
+        return type(self)(data_dir_path=data_dir_path)
+
     @abstractmethod
     def exists(self, path: str) -> bool:
         """
@@ -39,6 +58,37 @@ class BaseConnector(ABC):
         Raises:
             RuntimeError:
                 If no parquet files are found under the given path.
+        """
+        pass
+
+    @abstractmethod
+    def put_file(self, local_path: str, remote_path: str) -> None:
+        """
+        Upload a local file to the given object-storage path.
+
+        Args:
+            local_path (str):
+                Path of the file on the local filesystem.
+            remote_path (str):
+                Destination object path.
+
+        Returns:
+            None
+        """
+        pass
+
+    @abstractmethod
+    def glob(self, path_pattern: str) -> list[str]:
+        """
+        Return object paths matching a glob pattern.
+
+        Args:
+            path_pattern (str):
+                Glob pattern, e.g. ``s3://bucket/results/*.json``.
+
+        Returns:
+            list[str]:
+                Matching object paths.
         """
         pass
 
@@ -265,3 +315,67 @@ class BaseConnector(ABC):
                 Storage options dict passed to dask APIs as `storage_options=...`.
         """
         pass
+
+    # --- Plotting ---
+
+    def save_plot(self, path, fig, format="svg", transparent=False, dpi=300, overwrite=True, save_kwargs=None):
+        """
+        Save a matplotlib figure to object storage.
+
+        Args:
+            path: Destination object path, e.g. ``s3://3phi/plots/plot1.svg``.
+            fig: Matplotlib figure object.
+            format: "svg" or "png".
+            transparent: Whether the background should be transparent.
+            dpi: Resolution for PNG output.
+            overwrite: Skip saving if the object already exists and overwrite=False.
+            save_kwargs: Additional kwargs forwarded to ``fig.savefig()``.
+        """
+        fmt = format.lower()
+        if fmt not in {"svg", "png"}:
+            raise ValueError(f"Unsupported format: {fmt}")
+        if not isinstance(transparent, bool):
+            raise ValueError("transparent must be a boolean value.")
+        if not path.endswith(f".{fmt}"):
+            raise ValueError(f"path must end with .{fmt}")
+        if not overwrite and self.exists(path):
+            logging.info("Plot %s already exists and overwrite=False. Skipping.", path)
+            return
+
+        kwargs: dict[str, Any] = {"format": fmt, "bbox_inches": "tight", "transparent": transparent}
+        if fmt == "png":
+            kwargs["dpi"] = dpi
+        if save_kwargs is not None:
+            if not isinstance(save_kwargs, dict):
+                raise ValueError("save_kwargs must be a dictionary.")
+            kwargs.update(save_kwargs)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_path = os.path.join(tmpdir, os.path.basename(path))
+            fig.savefig(local_path, **kwargs)
+            self.put_file(local_path, path)
+
+        logging.info("Plot saved to %s.", path)
+
+    # --- Timeseries convenience methods ---
+    # Concrete methods that route to the correct sub-path within dataset_root_path.
+    # Subclasses must set self.dataset_root_path in __init__.
+
+    @property
+    def phase_map_path(self) -> str:
+        return f"{self.dataset_root_path}/phase_map.parquet"
+
+    def get_raw_data(self, meter_ids: list[str]) -> dd.DataFrame:
+        return self.get_meter_data(meter_ids, dataset_root_path=f"{self.dataset_root_path}/raw")
+
+    def get_flags_data(self, meter_ids: list[str]) -> dd.DataFrame:
+        return self.get_meter_data(meter_ids, dataset_root_path=f"{self.dataset_root_path}/flags")
+
+    def get_corrections_data(self, meter_ids: list[str]) -> dd.DataFrame:
+        return self.get_meter_data(meter_ids, dataset_root_path=f"{self.dataset_root_path}/corrections")
+
+    def write_flags(self, ddf: Any, **kwargs: Any) -> None:
+        self.write_parquet(f"{self.dataset_root_path}/flags", ddf, **kwargs)
+
+    def write_corrections(self, ddf: Any, **kwargs: Any) -> None:
+        self.write_parquet(f"{self.dataset_root_path}/corrections", ddf, **kwargs)

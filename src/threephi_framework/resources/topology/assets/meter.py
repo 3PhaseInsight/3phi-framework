@@ -104,6 +104,67 @@ class MeterResource(BaseResource):
         result = self.s.execute(sql, {"substation_id": int(substation_id)})
         return [dict(r) for r in result.mappings().all()]
 
+    def get_meters_for_transformer(self, transformer_id: int) -> list[dict]:
+        """
+        Return all meters associated with a given transformer, walking the *current* LV topology.
+
+        Mirrors :meth:`get_meters_for_substation` but seeds the walk at the feeders that
+        belong directly to the transformer, rather than at every feeder under a substation.
+
+        :param transformer_id: A single transformer ID
+        :type transformer_id: int
+        :return: A list of meter objects
+        :rtype: list[dict[Any, Any]]
+        """
+        sql = text("""
+            WITH RECURSIVE
+              cur AS (
+                SELECT version
+                FROM lv.topology_version
+                WHERE is_current
+              ),
+              seed AS (
+                SELECT n.version, n.id AS node_id
+                FROM lv.node n
+                JOIN cur                ON cur.version = n.version
+                JOIN lv.feeder f        ON n.feeder_id = f.id
+                WHERE n.node_type = 'LvFeeder'
+                  AND f.transformer_id = :transformer_id
+              ),
+              walk(version, node_id, path) AS (
+                -- ANCHOR
+                SELECT s.version, s.node_id, ARRAY[s.node_id]::bigint[]
+                FROM seed s
+                UNION ALL
+                -- Single recursive step (undirected)
+                SELECT
+                  w.version,
+                  CASE WHEN e.node1_id = w.node_id THEN e.node2_id ELSE e.node1_id END AS next_node_id,
+                  w.path || CASE WHEN e.node1_id = w.node_id THEN e.node2_id ELSE e.node1_id END
+                FROM walk w
+                JOIN lv.edge e
+                  ON e.version = w.version
+                 AND (e.node1_id = w.node_id OR e.node2_id = w.node_id)
+                WHERE NOT (
+                  (CASE WHEN e.node1_id = w.node_id THEN e.node2_id ELSE e.node1_id END) = ANY (w.path)
+                )
+              )
+            SELECT DISTINCT m.*
+            FROM walk w
+            JOIN lv.node n
+            ON n.version = w.version
+            AND n.id = w.node_id
+            AND n.node_type = 'DeliveryPoint'
+            JOIN lv.delivery_point dp
+            ON dp.id = n.delivery_point_id
+            JOIN lv.meter m
+            ON m.delivery_point_id = dp.id
+            ORDER BY m.id;
+        """)
+
+        result = self.s.execute(sql, {"transformer_id": int(transformer_id)})
+        return [dict(r) for r in result.mappings().all()]
+
     def get_meters_for_delivery_point(self, delivery_point_id: int) -> list[dict]:
         """
         Returns meters connected to a given delivery point.
