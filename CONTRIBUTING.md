@@ -1,4 +1,4 @@
-# Contibuting to 3phi Framework
+# Contributing to 3phi Framework
 
 ## Build a new version
 
@@ -56,7 +56,7 @@ A commit that make incompatible API changes, should be denoted `Breaking Change`
 [Ruff](https://docs.astral.sh/ruff/linter/) is used for linting and formatting in both local development (pre-commit) and CI, with a shared configuration in pyproject.toml.
 
 #### Ruff in CI pipeline
-- Runs on pushes/merge requests in GitLab.
+- Runs on pushes to `main` and on pull requests via GitHub Actions ([ci-release.yml](.github/workflows/ci-release.yml)).
 - Checks only (no auto-fix). If any check fails, the pipeline fails and the change cannot be merged.
 
 #### Ruff in pre-commit hook
@@ -73,6 +73,13 @@ A commit that make incompatible API changes, should be denoted `Breaking Change`
   pre-commit run --all-files
   ```
 
+
+## Tests
+
+Unit tests live in [tests](./tests/) and need no database or object storage. Run them with:
+```
+pytest
+```
 
 ## Documentation
 

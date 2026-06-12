@@ -95,6 +95,24 @@ The script will install the dependencies in [requirements.txt](requirements.txt)
 
 The framework abstracts object storage behind `BaseConnector` so data apps are decoupled from the underlying storage backend. Two implementations are provided out of the box.
 
+### Choosing the backend
+
+Every data app works against a single connector, resolved in this order:
+
+1. **Dependency injection** — pass any `BaseConnector` instance to the data app:
+   ```python
+   from threephi_framework import AzureBlobConnector, SMClassifier
+
+   connector = AzureBlobConnector(data_dir_path="phase_measurements/raw")
+   with SMClassifier(config, connector=connector) as app:
+       app.run()
+   ```
+2. **Config key** — set `object_storage_backend: "s3" | "azure"` in the data app config (e.g. in a DAG's YAML); the connector is built by `create_connector()`.
+3. **Environment variable** — `OBJECT_STORAGE_BACKEND` (same values), useful to switch a whole deployment.
+4. **Default** — `"s3"`.
+
+The connector is rooted at `config["data_dir_path"]` (default `phase_measurements/raw`) and shared by the data app's `DataExtractor` and `TimeSeriesController`. Functions that run on Dask workers reconstruct the connector from the backend name carried in their config, so backends swap consistently across the cluster.
+
 ### S3Connector
 
 For AWS S3 or any S3-compatible storage (the default local dev setup uses **MinIO**).
@@ -147,6 +165,34 @@ controller = TimeSeriesController(connector=MyConnector(data_dir_path="..."))
 ```
 
 ---
+
+## Workflow Gating
+
+Data apps whose work is a whole-dataset step — `TimeseriesIngestor`, `TopologyIngestor`, `TopologyCleaner` — record completion in the `meta.workflow_states` table and **skip silently on re-runs** (the log states the skip and the workflow name). This makes pipelines that chain several data apps (e.g. an Airflow DAG running `ingest >> clean >> classify`) safe to re-run: steps that already happened are not repeated.
+
+Completion is scoped to the config values that affect the app's outputs (source paths, destinations — not Dask or plotting settings). Running the same app with a different relevant config counts as a new workflow and executes normally; the workflow name carries a hash of those values, and the row's `description` column holds them as JSON for inspection:
+
+```sql
+SELECT workflow, completed, description FROM meta.workflow_states;
+```
+
+To force a re-run despite a recorded completion, set:
+
+```yaml
+override: true
+```
+
+in the app config (or reset the row: `UPDATE meta.workflow_states SET completed = false WHERE workflow = '...'`).
+
+Apps that produce per-entity results (`SMClassifier`, `StatLabeler`) do not use this mechanism — their result tables are the record of what has been processed.
+
+To opt a new data app into gating, declare two class attributes (see the `BaseDataApp` docstring):
+
+```python
+class MyIngestor(BaseDataApp):
+    WORKFLOW = "my_ingestion_step"
+    IDENTITY_KEYS = ("source_path", "destination_path")
+```
 
 ## Data Model
 

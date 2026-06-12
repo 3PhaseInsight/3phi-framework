@@ -8,7 +8,7 @@ except ImportError:  # pragma: no cover
     from importlib_metadata import PackageNotFoundError, version  # type: ignore
 
 try:
-    __version__ = version("threephi-framework")
+    __version__ = version("3phi-framework")
 except PackageNotFoundError:
     __version__ = "0.0.0"
 
@@ -16,18 +16,23 @@ except PackageNotFoundError:
 from .controllers.topology import TopologyController
 from .data_apps.base import BaseDataApp
 from .data_apps.sm_classifier import SMClassifier
+from .data_apps.stat_labeler import StatLabeler
 from .data_apps.timeseries_ingestor import TimeseriesIngestor
 from .data_apps.topology_cleaner import TopologyCleaner
 from .data_apps.topology_ingestor import TopologyIngestor
 from .data_apps.topology_tester import TopologyTester
 from .data_extractor.data_extractor import DataExtractor
 from .object_storage.azure_blob_connector import AzureBlobConnector
+from .object_storage.base_connector import BaseConnector
+from .object_storage.factory import create_connector
 from .object_storage.s3_connector import S3Connector
 from .processing_level import ProcessingLevel
 
 __all__ = [
     "S3Connector",
     "AzureBlobConnector",
+    "BaseConnector",
+    "create_connector",
     "BaseDataApp",
     "ProcessingLevel",
     "TimeseriesIngestor",
@@ -35,6 +40,7 @@ __all__ = [
     "TopologyIngestor",
     "TopologyTester",
     "SMClassifier",
+    "StatLabeler",
     "DataExtractor",
     "TopologyController",
     "__version__",

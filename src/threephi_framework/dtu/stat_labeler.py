@@ -491,8 +491,17 @@ def _get_anova_results(sm_df, post_thermal_load, cfg):
 
 
 def label_meters(sm_ids, sm_with_hp, cfg):
-    # Load heat pump status and weather data
-    data_extractor = DataExtractor(phase_measurements_dir=cfg["data_dir_path"])
+    # sm_with_hp comes from TopologyController.get_meters() as a list of meter
+    # row dicts — normalize to a set of string IDs for membership checks.
+    sm_ids_with_hp = {str(m["id"]) for m in sm_with_hp}
+
+    # Load heat pump status and weather data. This function runs on Dask workers,
+    # so the connector is reconstructed from the backend name instead of being
+    # shipped through the task graph.
+    data_extractor = DataExtractor(
+        phase_measurements_dir=cfg["data_dir_path"],
+        backend=cfg.get("object_storage_backend"),
+    )
     weather_df = data_extractor.s3_connector.read_small_csv(cfg["weather_file"])
     weather_df["DateTime"] = pd.to_datetime(weather_df["DateTime"], dayfirst=True, utc=True)
     weather_df.set_index("DateTime", inplace=True)
@@ -523,7 +532,7 @@ def label_meters(sm_ids, sm_with_hp, cfg):
         logging.info(f"Processing smart meter {sm_id}")
 
         # If the sm_id does not have a heat pump, skip it
-        if cfg["process_only_sm_with_hp"] and sm_id not in sm_with_hp:
+        if cfg["process_only_sm_with_hp"] and str(sm_id) not in sm_ids_with_hp:
             logging.info(f"Smart meter {sm_id} does not have a heat pump. Skipped.")
             continue
 
