@@ -1263,14 +1263,25 @@ def identify_sm_topology(trafo_ids, cfg, sm_topology_mapping):
             logging.info(f"SMs below trafo {trafo_id}: {sm_ids_from_trafo}")
 
             # Collect phases the SM classifier marked as unconnected; they are
-            # excluded from clustering and flagged in the results.
-            # TODO: When a meter has no SM classification yet (Data Quality is None), trigger the
-            # SMClassifier for it (e.g. as an upstream DAG task) instead of silently treating all
-            # of its phases as connected.
+            # excluded from clustering and flagged in the results. Ensuring the
+            # classification exists is orchestration, not framework logic: the DAG
+            # should chain the SMClassifier before the phase mapper for the same
+            # meter scope. Meters without a classification are processed with all
+            # phases assumed connected — warn so the gap is visible.
             unconnected_phases = []
+            unclassified_sms = []
             for sm_id in sm_ids_from_trafo:
                 sm_topology_info = meta_controller.get_sm_characterization(sm_id)
+                if sm_topology_info.get("Data Quality") is None:
+                    unclassified_sms.append(sm_id)
                 unconnected_phases.extend(_unconnected_phase_labels(sm_topology_info, sm_id))
+
+            if unclassified_sms:
+                logging.warning(
+                    f"[Transformer {trafo_id}] {len(unclassified_sms)} meter(s) have no SM classification yet; "
+                    f"all of their phases are treated as connected: {unclassified_sms}. "
+                    f"Run the SMClassifier for these meters first (chain it before the phase mapper in the DAG)."
+                )
 
             # Load raw sm phase voltage time series of all SMs below current transformer trafo_id.
             # TODO: Support selecting a timeseries processing level (currently always RAW); pass a
