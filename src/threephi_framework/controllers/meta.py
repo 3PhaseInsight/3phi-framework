@@ -442,25 +442,29 @@ class MetaController:
 
             order_cols = [allowed[f] for f in fields]
 
-        return RunResultResource(self._sf()).query(
-            dag_id=dag_id,
-            run_id=run_id,
-            meter_id=meter_id,
-            phase=phase,
-            label_type=label_type,
-            label_value=label_value,
-            source=source,
-            topology_version=topology_version,
-            node_id=node_id,
-            edge_id=edge_id,
-            cable_id=cable_id,
-            min_confidence=min_confidence,
-            max_confidence=max_confidence,
-            limit=limit,
-            offset=offset,
-            order_by=order_cols,
-            descending=descending,
-        )
+        s = self._sf()
+        try:
+            return RunResultResource(s).query(
+                dag_id=dag_id,
+                run_id=run_id,
+                meter_id=meter_id,
+                phase=phase,
+                label_type=label_type,
+                label_value=label_value,
+                source=source,
+                topology_version=topology_version,
+                node_id=node_id,
+                edge_id=edge_id,
+                cable_id=cable_id,
+                min_confidence=min_confidence,
+                max_confidence=max_confidence,
+                limit=limit,
+                offset=offset,
+                order_by=order_cols,
+                descending=descending,
+            )
+        finally:
+            s.close()
 
     @staticmethod
     def _get_airflow_dag_and_run_id() -> tuple[str, str]:
@@ -584,7 +588,12 @@ class MetaController:
         s.commit()
 
     def is_workflow_completed(self, workflow: str) -> bool:
-        return WorkflowStateResource(self._sf()).is_completed(workflow)
+        s = self._sf()    
+        try:
+            return WorkflowStateResource(s).is_completed(workflow)
+        finally:
+            s.close()
+        # return WorkflowStateResource(self._sf()).is_completed(workflow)
 
     def start_workflow(self, workflow: str, description: str | None = None) -> None:
         logging.info("Starting workflow: %s", workflow)

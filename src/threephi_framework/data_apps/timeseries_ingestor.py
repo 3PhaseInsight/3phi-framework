@@ -22,6 +22,7 @@ class TimeseriesIngestor(BaseDataApp):
 
     def __init__(self, config):
         super().__init__(config)
+        self.use_dask = config.get('use_dask', False)
         self.override = self.config["override"]
         self.csv_source_path = self.config["csv_source_path"]
         self.csv_file_pattern = self.config["csv_file_pattern"]

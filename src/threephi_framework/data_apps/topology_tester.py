@@ -48,31 +48,40 @@ class TopologyTester(BaseDataApp):
 
     def run(self):
         # Test get_meters_for_substation
-        meters = self.topology_controller.get_meters_for_substation(self.substation_id)
-        logging.info(f"Meters for substation {self.substation_id}: {meters}")
+        meters = self.topology_controller.get_meters_for_node(node_id=313527, node_type="lv_feeder")
+        
+        actual_meters = [str(meter["id"]) for meter in meters]
+        logging.info(f"Meters for feeder: {actual_meters}")
+
+        # meters = self.topology_controller.get_meters_for_substation(self.substation_id)
+        # logging.info(f"Meters for substation {self.substation_id}: {meters}")
+
+        # # Test get_node_for_meter
+        # node = self.topology_controller.get_node_for_meter(int(meters[0]["id"]))
+        # logging.info(f"Node for meter {meters[0]['id']}: {node}")
 
         # Test get_meters
-        meters = self.topology_controller.get_meters(True, True)
-        logging.info(f"get_meters(has_heat_pump=True, has_solar_panel=True): {meters}")
+        # meters = self.topology_controller.get_meters(True, True)
+        # logging.info(f"get_meters(has_heat_pump=True, has_solar_panel=True): {meters}")
 
-        # Test get_meters_for_node (delivery_point)
-        meters = self.topology_controller.get_meters_for_node(self.delivery_point_id, "delivery_point")
-        logging.info(f'get_meters_for_node(node_id={self.delivery_point_id}, "delivery_point"): {meters}')
+        # # Test get_meters_for_node (delivery_point)
+        # meters = self.topology_controller.get_meters_for_node(self.delivery_point_id, "delivery_point")
+        # logging.info(f'get_meters_for_node(node_id={self.delivery_point_id}, "delivery_point"): {meters}')
 
-        # Test get_meters_for_node (cabinet)
-        meters = self.topology_controller.get_meters_for_node(self.cabinet_id, "cabinet")
-        logging.info(f'get_meters_for_node(node_id={self.cabinet_id}, "cabinet"): {meters}')
+        # # Test get_meters_for_node (cabinet)
+        # meters = self.topology_controller.get_meters_for_node(self.cabinet_id, "cabinet")
+        # logging.info(f'get_meters_for_node(node_id={self.cabinet_id}, "cabinet"): {meters}')
 
-        # Test get_meters_for_node (feeder)
-        meters = self.topology_controller.get_meters_for_node(self.feeder_id, "lv_feeder")
-        logging.info(f'get_meters_for_node(node_id={self.feeder_id}, "lv_feeder"): {meters}')
+        # # Test get_meters_for_node (feeder)
+        # meters = self.topology_controller.get_meters_for_node(self.feeder_id, "lv_feeder")
+        # logging.info(f'get_meters_for_node(node_id={self.feeder_id}, "lv_feeder"): {meters}')
 
 
 if __name__ == "__main__":
     config = {
         "dask": {
             "local": True,
-            "n_workers": 6,
+            "n_workers": 1,
         },
         "substation_id": 147237,
         "delivery_point_id": 999994,
