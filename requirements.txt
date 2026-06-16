@@ -17,3 +17,7 @@ tqdm
 scipy
 scikit-learn
 statsmodels
+
+# streamlit app (run_streamlit.sh)
+streamlit
+altair
