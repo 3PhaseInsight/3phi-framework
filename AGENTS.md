@@ -10,44 +10,52 @@ Quick-reference for AI agents working in this repository. Read this before explo
 
 ```
 src/threephi_framework/
-├── __init__.py                   # Public API (S3Connector, AzureBlobConnector, BaseDataApp, SMClassifier, controllers, data apps)
+├── __init__.py                   # Public API (connectors, BaseDataApp, data apps, DataExtractor, TopologyController, ProcessingLevel)
+├── processing_level.py           # ProcessingLevel StrEnum (raw / cleaned / cleaned_and_corrected)
 ├── db/db.py                      # SQLAlchemy engine + new_session() factory
 ├── object_storage/
-│   ├── base_connector.py         # Abstract storage interface
+│   ├── base_connector.py         # Abstract storage interface (+ raw/flags/corrections convenience methods)
+│   ├── factory.py                # create_connector(): backend from arg / env / "s3" default
 │   ├── s3_connector.py           # MinIO/S3 impl (s3fs + Dask storage options)
 │   └── azure_blob_connector.py   # Azure Blob Storage impl (adlfs)
 ├── models/
 │   ├── base.py                   # BaseModel (DeclarativeBase)
 │   ├── topology/lv_schema_mixin.py   # Sets schema="lv" for topology tables
-│   ├── meta/meta_schema_mixin.py     # Sets schema for metadata tables
 │   ├── topology/assets/          # SecondarySubstation, Transformer, Feeder, Cabinet, DeliveryPoint, Meter
-│   └── topology/graph/           # Node, Edge, Cable, EdgeCable, TopologyVersion
+│   ├── topology/graph/           # Node, Edge, Cable, EdgeCable, TopologyVersion
+│   ├── topology/utilities.py     # NodeCurrentModel / EdgeCurrentModel (map the *_current views)
+│   ├── meta/meta_schema_mixin.py     # Sets schema for metadata tables
+│   └── meta/                     # MetaMeter, FileIndex, IngestBatch, RunResult, WorkflowState
 ├── resources/
 │   ├── base.py                   # BaseResource: session=self.s, bulk_insert(), _log_*()
 │   ├── staging.py                # Temp tables for bulk ingestion
 │   ├── sanity.py                 # Pre-commit data validation checks
-│   ├── topology/                 # Mirrors models/topology/ (assets + graph)
-│   └── meta/                    # MetaMeterResource, RunResultResource
+│   ├── topology/                 # Mirrors models/topology/ (assets + graph) + topology_export.py
+│   └── meta/                     # MetaMeter, FileIndex, IngestBatch, RunResult, WorkflowState resources
 ├── controllers/
-│   ├── topology.py               # TopologyController: version management, ingestion, queries
-│   ├── meta.py                   # MetaController: meter metadata, classifier outputs
-│   └── time_series.py            # TimeSeriesController: S3 time series access
+│   ├── topology.py               # TopologyController: version management, ingestion, queries, exports
+│   ├── meta.py                   # MetaController: meter metadata, run results, workflow states
+│   ├── time_series.py            # TimeSeriesController: processing-level-aware timeseries reads
+│   └── ingestion.py              # IngestionController: ingest batch + file index lifecycle
 ├── data_apps/
 │   ├── base.py                   # BaseDataApp: context manager, Dask lifecycle, cached controllers
 │   ├── base_config.py            # BaseConfig frozen dataclass → .to_dict()
 │   ├── timeseries_ingestor.py
 │   ├── topology_ingestor.py
+│   ├── topology_cleaner.py       # Re-ingests the current topology at level "cleaned"
 │   ├── topology_tester.py
 │   ├── sm_classifier.py
 │   └── stat_labeler.py
 ├── data_extractor/
-│   └── data_extractor.py         # CSV→Parquet partitioning, sharded S3 writes
+│   ├── data_extractor.py         # CSV→Parquet ingestion + legacy-compatible proxy over the controllers
+│   └── schemas/phase_measurements/v1.py  # Parquet/CSV column schemas + QualityFlag
 ├── schemas/v1/                   # Pandas dtype definitions (topology, phase_measurements)
-├── dtu/                          # Data transformation utilities (sm_classifier, stat_labeler)
+├── dtu/                          # Domain logic (sm_classifier, stat_labeler, timeseries_cleaner, topology_cleaner)
 └── util/util.py                  # v1_get_shard_for_meter_id() — xxhash % 3 sharding
 ```
 
-No `tests/` directory. Integration testing is done via `if __name__ == "__main__"` blocks in data apps.
+Unit tests live in `tests/` (pure-Python, no DB required): run with `pytest`. Data apps
+additionally have `if __name__ == "__main__"` blocks for integration runs against a live stack.
 
 ## Architecture: three-tier pattern
 
@@ -74,6 +82,12 @@ Context manager. Always use as `with MyApp(config) as app: app.run()`.
 - `__exit__`: closes Dask client, logs any exception
 - Controllers are `@cached_property` — instantiated lazily on first access
 - Subclasses must implement `run()`
+- Workflow gating: whole-dataset apps (ingestion, cleaning) declare `WORKFLOW` +
+  `IDENTITY_KEYS` (the config keys that affect outputs) and skip when
+  `workflow_completed()` — recorded in `meta.workflow_states` under a
+  config-hashed name; `config["override"] = True` forces a re-run. Apps with
+  per-entity results (classifier, phase mapper) derive completion from their
+  result tables instead.
 
 ### BaseResource (`resources/base.py`)
 - Constructor takes a `Session`; stored as `self.s`
@@ -86,11 +100,13 @@ Context manager. Always use as `with MyApp(config) as app: app.run()`.
 - `TopologyVersion` with `is_current` flag enables reproducible historical queries
 
 ### Storage connectors (`object_storage/`)
-`BaseConnector` defines the full interface. Two implementations ship out of the box:
+`BaseConnector` defines the full interface (including `put_file`, `glob`, the shared `save_plot`, a uniform `storage_base`, and `with_data_dir()` for deriving siblings). Two implementations ship out of the box:
 - `S3Connector` — wraps s3fs; targets MinIO/S3; bucket hardcoded to `3phi`
 - `AzureBlobConnector` — wraps adlfs; targets Azure Blob Storage; falls back to `DefaultAzureCredential` when no account key is set
 
 Both use the same Parquet sharding scheme: meter_id → `util.v1_get_shard_for_meter_id()` → 3 shards.
+
+**Backend selection**: data apps accept a `connector=` constructor argument (dependency injection); without one, `create_connector()` (`object_storage/factory.py`) picks the backend from `config["object_storage_backend"]`, then the `OBJECT_STORAGE_BACKEND` env var, then defaults to "s3". Code that runs on Dask workers reconstructs the connector from the backend name in its cfg — never ship connector instances through task graphs. Never construct `S3Connector` directly in app code; inject or use the factory.
 
 `TimeSeriesController` accepts any `BaseConnector` — swap the implementation without changing application code. `get_meter_data(meter_ids, dataset_root_path=None)` accepts an optional path override; if omitted, falls back to the path set at construction time.
 
@@ -99,6 +115,8 @@ Both use the same Parquet sharding scheme: meter_id → `util.v1_get_shard_for_m
 ```python
 config = {
     "result_name": "optional_run_label",   # defaults to unix timestamp
+    "data_dir_path": "phase_measurements/raw",   # dataset root the connector is bound to
+    "object_storage_backend": "s3",        # or "azure"; omit to use OBJECT_STORAGE_BACKEND / "s3"
     "dask": {
         # Remote cluster:
         "host": "dask-scheduler",
@@ -138,7 +156,8 @@ All live in the `lv` DB schema. Meter metadata (JSONB columns `data_quality`, `d
 
 ## Environment
 
-All connection settings come from `.env` (not committed):
+All connection settings come from `.env`. The committed `.env` contains local-dev defaults
+matching the `docker/` stack — real deployments override these values:
 
 ```bash
 # S3 / MinIO
@@ -160,7 +179,8 @@ DB_HOST=localhost
 DB_PORT=5432
 ```
 
-Local dev: `docker compose up -d` inside `docker/` spins up PostgreSQL + MinIO.
+Local dev: `make up` inside `docker/` spins up PostgreSQL (schema deployed from the canonical
+data-platform sqitch migrations) + MinIO. See `docker/README.md` for seeding and variants.
 
 ## What NOT to do
 

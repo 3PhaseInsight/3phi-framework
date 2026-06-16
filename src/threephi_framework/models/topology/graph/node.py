@@ -39,5 +39,5 @@ class NodeModel(LvSchemaMixin, BaseModel):
         return (
             f"Node(version={self.version!r}, node_id={self.id!r}, "
             f"node_type={self.node_type!r}, feeder_id={self.feeder_id!r}, "
-            f"cabinet_id={self.cabinet_id!r}, delivery_point_id={self.delivery_point_id!r}"
+            f"cabinet_id={self.cabinet_id!r}, delivery_point_id={self.delivery_point_id!r})"
         )

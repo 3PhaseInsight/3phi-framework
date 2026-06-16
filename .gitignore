@@ -8,6 +8,8 @@ docker/tmp
 docker/object_storage/*
 **.bak
 **.venv
+# results written by the Streamlit app
+src/threephi_framework/data_apps/Results/
 internal/
 docker/.migrations/
 docker/dev.env

@@ -10,3 +10,7 @@ pandas
 xxhash
 matplotlib
 tqdm
+# needed to autodoc data_apps.stat_labeler (imports dtu.stat_labeler)
+scipy
+scikit-learn
+statsmodels
