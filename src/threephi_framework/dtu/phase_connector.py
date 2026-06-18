@@ -422,6 +422,9 @@ def recommend_phase(sm_id, cfg):
             }
             for ph in phases
         },
+        'phase_consumption': {ph: float(round(phase_consumption[ph], 3)) for ph in phases},
+        'sm_id_consumption': {ph: float(round(sm_id_consumption[ph], 3)) for ph in phases},
+        'phase_counts':      {ph: int(phase_counts[ph]) for ph in phases},
     }
 
     meta_controller = MetaController(threephi_db.new_session)

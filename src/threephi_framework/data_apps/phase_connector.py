@@ -43,7 +43,7 @@ if __name__ == "__main__":
         "use_dask": True,
         "dask": {"local": True, "n_workers": 1},
         "data_dir_path": "phase_measurements/raw",
-        "sm_id": '23405',
+        "sm_id": '759234',
         "save_plots": False,
         "profile_processing_level": "raw",
 
