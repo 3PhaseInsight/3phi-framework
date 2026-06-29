@@ -409,5 +409,5 @@ class TopologyController:
         Returns:
             dict | None: The topology chain for the given meter, or None if no chain is found.
         """
-        s = self._sf()
-        return MeterResource(s).get_topology_chain_for_meter(meter_id)
+        with self._sf() as s:
+            return MeterResource(s).get_topology_chain_for_meter(meter_id)
