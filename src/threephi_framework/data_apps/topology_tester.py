@@ -49,7 +49,7 @@ class TopologyTester(BaseDataApp):
     def run(self):
         # Test get_meters_for_substation
         meters = self.topology_controller.get_meters_for_node(node_id=313527, node_type="lv_feeder")
-        
+
         actual_meters = [str(meter["id"]) for meter in meters]
         logging.info(f"Meters for feeder: {actual_meters}")
 

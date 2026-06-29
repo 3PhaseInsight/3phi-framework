@@ -8,12 +8,11 @@ from scipy.stats import truncnorm
 from sklearn.metrics import mean_absolute_error
 from tqdm import tqdm
 
+import threephi_framework.db.db as threephi_db
+from threephi_framework.controllers.meta import MetaController
+from threephi_framework.controllers.time_series import TimeSeriesController
 from threephi_framework.data_extractor.data_extractor import DataExtractor
 from threephi_framework.object_storage.s3_connector import S3Connector
-from threephi_framework.controllers.time_series import TimeSeriesController
-from threephi_framework.controllers.meta import MetaController
-import threephi_framework.db.db as threephi_db
-
 
 
 def _preprocess_smart_meters(sm_df, sm_id):
@@ -26,7 +25,7 @@ def _preprocess_smart_meters(sm_df, sm_id):
 
     # Remove 'active_power_p14' from column names but keep the columns
     data.columns = [col.replace('active_power_p14_', '') for col in data.columns]
-    
+
     # remove columns with zero or very low consumption
     min_std_threshold = 1e-8
     data = data.loc[:, data.std() > min_std_threshold]
@@ -36,8 +35,9 @@ def _preprocess_smart_meters(sm_df, sm_id):
 
     # Remove periods with zero consumption across all phases (likely missing data)
     data = data[(data != 0).any(axis=1)]
-    
-    # Remove periods of sustained zero consumption longer than 1 weeks (assuming: 7 days * 4 recordings per hour * 24 = 672)
+
+    # Remove periods of sustained zero consumption longer than 1 weeks
+    # (assuming: 7 days * 4 recordings per hour * 24 = 672)
     zero_consumption_mask = (data == 0).all(axis=1)
     zero_consumption_groups = (zero_consumption_mask != zero_consumption_mask.shift()).cumsum()
     zero_consumption_durations = zero_consumption_mask.groupby(zero_consumption_groups).transform('sum')
@@ -78,7 +78,7 @@ def _get_base_load_and_temperature_bins(sm_df, cfg):
     n_bins = max_bins
     valid_bins_found = False
 
-    phase_cols = [col for col in sm_df.columns if col.startswith('l')]  
+    phase_cols = [col for col in sm_df.columns if col.startswith('l')]
 
     # Find the temperature bins such that all 24 hours of the day are represented in the lowest temperature bin
     while n_bins > min_bins and not valid_bins_found:
@@ -116,11 +116,12 @@ def _get_base_load_and_temperature_bins(sm_df, cfg):
     if not valid_bins_found:
         logging.warning(f"Could not find a fully populated lowest temperature bin; using {n_bins} bins as fallback.")
         sm_df["T_bin"] = pd.qcut(sm_df["Temperature"], n_bins, labels=range(n_bins), duplicates="drop")
-        tmin_list = [sm_df["T_bin"].value_counts().idxmax()] * len(phase_cols)  # If no valid bin found, use the most common bin as fallback
+        # If no valid bin found, use the most common bin as fallback
+        tmin_list = [sm_df["T_bin"].value_counts().idxmax()] * len(phase_cols)
 
     # Create a base load profile, based on consumption at different hours of the day at the specific temperature bin
     load_base_list = []
-    for phase_col, tmin in zip(phase_cols, tmin_list):
+    for phase_col, tmin in zip(phase_cols, tmin_list, strict=False):
         loadb = (
             pd.Series(
                 # Sample the base load for each hour and specific temperature bin
@@ -159,19 +160,19 @@ def _get_priors(dfl, dfb, nsamples=1000, maxstep=4000, step=40, tmin=None, nT=12
             threshold_index = int(nsamples / 100)
             counter = 0
 
-            for _ in range(1000): 
+            for _ in range(1000):
                 mu = np.random.uniform(0, maxstep, nsamples)
                 sd = np.random.uniform(0, maxstep/4, nsamples)
                 distance = np.zeros(nsamples)
 
                 total_load, _ = np.histogram(load, bins=step, range=(0, maxstep))
                 total_load = (total_load + 1.e-6) / (total_load + 1.e-6).sum() # avoid NaNs
-                    
+
                 for i in range(nsamples):
                     samples_base = np.random.choice(loadb, 1000)
                     lim_a, lim_b = (0 - mu[i]) / sd[i], (maxstep - mu[i]) / sd[i]
                     samples_thermal = truncnorm.rvs(lim_a, lim_b, loc=mu[i], scale=sd[i], size=1000)
-                    
+
                     # Approximate the total load, by sampling from the base load and thermal load
                     approx_load, _ = np.histogram(samples_base + samples_thermal, bins=step, range=(0, maxstep))
                     approx_load = (approx_load + 1.e-6) / (approx_load + 1.e-6).sum() # avoid NaNs
@@ -182,9 +183,10 @@ def _get_priors(dfl, dfb, nsamples=1000, maxstep=4000, step=40, tmin=None, nT=12
                 threshold = np.sort(distance)[threshold_index]
                 selected_mu = mu[distance < threshold]
                 selected_sd = sd[distance < threshold]
-    
+
                 # Increase the threshold, if we cannot find any valid mu and sd values
-                # Try twice for the same threshold, before increasing the threshold, to avoid increasing the threshold too quickly in case of outliers
+                # Try twice for the same threshold, before increasing the threshold,
+                # to avoid increasing the threshold too quickly in case of outliers
                 if counter > 2:
                     threshold_index += 1
                     counter = 0
@@ -198,13 +200,13 @@ def _get_priors(dfl, dfb, nsamples=1000, maxstep=4000, step=40, tmin=None, nT=12
 
                 if not np.isnan(selected_mu.mean()) and not np.isnan(selected_sd.mean()):
                     break
-                
+
                 # Ensure that no more than 100 iterations are done
                 threshold_index += 1
                 if threshold_index >= nsamples:
                     raise ValueError("Unable to find a valid threshold without NaNs.")
 
-                
+
             if selected_mu.size == 0 or selected_sd.size == 0:
                 if len(load) > 0:
                     mu_prior[hour, t_bin] = np.mean(load)
@@ -217,7 +219,7 @@ def _get_priors(dfl, dfb, nsamples=1000, maxstep=4000, step=40, tmin=None, nT=12
                     sd_prior[hour, t_bin] = 1
                 continue
 
-            
+
             mu_prior[hour, t_bin] = selected_mu.mean()
             sd_prior[hour, t_bin] = selected_sd.mean()
 
@@ -295,7 +297,7 @@ def _get_thermal_prior(sm_df, tmin_list, n_bins):
 
     phase_cols = [col for col in sm_df.columns if col.startswith('l')]
 
-    for phase_col, tmin in zip(phase_cols, tmin_list):
+    for phase_col, tmin in zip(phase_cols, tmin_list, strict=False):
         # If the sum of one phase is less than 1% of the sum of the two other phases, then we regard it as dead
         sum_phase = sm_df[phase_col].sum()
         other_phases = [p for p in phase_cols if p != phase_col]
@@ -332,7 +334,9 @@ def _get_thermal_posterior(thermal_prior_list, maxstep_list, step_list, sm_df, t
     # Get the thermal posteriors
     thermal_posterior_list = []
     phase_cols = [col for col in sm_df.columns if col.startswith('l')]
-    for phase_col, tmin, thermal_prior, maxstep, step in zip(phase_cols, tmin_list, thermal_prior_list, maxstep_list, step_list):
+    for phase_col, tmin, thermal_prior, maxstep, step in zip(
+        phase_cols, tmin_list, thermal_prior_list, maxstep_list, step_list, strict=False
+    ):
         # maxstep = maxstep_list[phase]
         # step = step_list[phase]
 
@@ -346,7 +350,9 @@ def _get_thermal_posterior(thermal_prior_list, maxstep_list, step_list, sm_df, t
 
     # Sample a posterior thermal load for each phase
     post_thermal_load = []
-    for phase_col, thermal_posterior, maxstep, step in zip(phase_cols, thermal_posterior_list, maxstep_list, step_list):
+    for phase_col, thermal_posterior, maxstep, step in zip(
+        phase_cols, thermal_posterior_list, maxstep_list, step_list, strict=False
+    ):
         # step = step_list[phase]
         # maxstep = maxstep_list[phase]
 
@@ -453,7 +459,7 @@ def _BIC_to_model_probs(bics: dict, priors: dict) -> dict:
 
     # Filter out non-finite BICs and models with zero prior
     finite = {k: v for k, v in bics.items() if np.isfinite(v) and priors.get(k, 0.0) > 0}
-    
+
     # If no finite BICs, return priors normalized
     if not finite:
         tot = sum(priors.values())
@@ -479,26 +485,28 @@ def _compute_TDEL_confidence_BIC(
         the posterior thermal load.
 
         3 models are compared:
-        M0: y_t ≈ x̄ + ϵ_t 
-            Null model (intercept only). 
+        M0: y_t ≈ x̄ + ϵ_t
+            Null model (intercept only).
             Load can be described by a constant mean + noise, meaning there is no dependency on temperature or schedule.
 
-        M1: y_t ≈ x̄ + k * max(0, T_balance - T_t) + ϵ_t 
-            Heating-driven model (intercept + heating degree hours proxy). 
-            Load can be described by a constant mean + relation to heating degree hours + noise, meaning it is dependent on outside temperature.
+        M1: y_t ≈ x̄ + k * max(0, T_balance - T_t) + ϵ_t
+            Heating-driven model (intercept + heating degree hours proxy).
+            Load can be described by a constant mean + relation to heating degree hours + noise,
+            meaning it is dependent on outside temperature.
             The max function implies that y_t ≈ x̄ in warm periods (e.g. over the balance temperature)
-            
-        M2: y_t ≈ x̄ + ξ_t + ϵ_t 
+
+        M2: y_t ≈ x̄ + ξ_t + ϵ_t
             Schedule-driven model (intercept + hour-of-day dummies).
-            Load can be described by a constant mean + daily schedule + noise, meaning it is dependent on time of day but not temperature.
+            Load can be described by a constant mean + daily schedule + noise,
+            meaning it is dependent on time of day but not temperature.
 
     Caveats:
         - Model incompleteness. Models may not capture all relevant factors affecting load.
-        - Low sample size results in poor confidence estimates. Therefore a minimum number of 2 months worth of 
+        - Low sample size results in poor confidence estimates. Therefore a minimum number of 2 months worth of
             1-hour data (1400 timestamps) is required to perform the analysis; if not met, confidence is set to 0.0.
         - Large sample size results in overconfident estimates, as even small effects become statistically significant.
         - Data is approximated by ABC. This creates biases in the load estimates, which may affect confidence estimates.
-        
+
     Args:
         sm_df: pd.DataFrame with datetime index, temperature column
         post_thermal_load: list of pd.Series of approximated thermal load per phase
@@ -511,7 +519,7 @@ def _compute_TDEL_confidence_BIC(
         phase_conf: list[float] length 3
         meta: dict with BICs and posterior model probs
     """
-    
+
     # Initial guess: Each model have an equal probability of explaining the data, before seeing the data.
     if model_priors is None:
         model_priors = {"M0": 0.33, "M1": 0.33, "M2": 0.34}
@@ -523,7 +531,7 @@ def _compute_TDEL_confidence_BIC(
 
     # Define the temperature variable for the analysis
     T = sm_df[temp_col]
-    
+
     # Define the heating degree hours (hdh) variable
     hdh = np.maximum(0.0, T_balance - T.values)
 
@@ -538,13 +546,15 @@ def _compute_TDEL_confidence_BIC(
         "per_phase": []
         }
 
-    for phase_col, y_series in zip(phase_cols, post_thermal_load):
+    for phase_col, y_series in zip(phase_cols, post_thermal_load, strict=False):
         # y_series = post_thermal_load[phase]
         # Align and drop NaNs consistently
-        df = pd.DataFrame({"y": y_series, "Temperature": T, "hdh": hdh, "hour": sm_df.index.hour}, index=sm_df.index).dropna()
+        df = pd.DataFrame(
+            {"y": y_series, "Temperature": T, "hdh": hdh, "hour": sm_df.index.hour}, index=sm_df.index
+        ).dropna()
 
         # Data must at least be worth over 2 months of 15-min load data, before meaningful results can be expected
-        if len(df) < min_timestamps: 
+        if len(df) < min_timestamps:
             phase_conf.append(0.0)
             meta["per_phase"].append(
                 {
@@ -616,11 +626,11 @@ def _calculate_mae(sm_df, post_thermal_load, loadb_list):
 
     phase_cols = [col for col in sm_df.columns if col.startswith('l')]
     # Compute the MAE and relative MAE between the post_thermal_load and the base load
-    total_load = [post + loadb for post, loadb in zip(post_thermal_load, loadb_list)]
+    total_load = [post + loadb for post, loadb in zip(post_thermal_load, loadb_list, strict=False)]
 
     mae_list = []
     maer_list = []
-    for phase_col, total in zip(phase_cols, total_load):
+    for phase_col, total in zip(phase_cols, total_load, strict=False):
         mae_list.append(mean_absolute_error(total, sm_df[phase_col]))
         maer_list.append(mean_absolute_error(total, sm_df[phase_col]) / sm_df[phase_col].mean())
 
@@ -635,7 +645,9 @@ def label_meters(sm_ids, sm_with_hp, cfg):
         meta_controller = MetaController(threephi_db.new_session)
 
         # Load temperature data
-        weather_df = data_extractor.s3_connector.read_small_csv(data_extractor.s3_base + cfg["temp_data_path"], dtype={"Temperature": float})
+        weather_df = data_extractor.s3_connector.read_small_csv(
+            data_extractor.s3_base + cfg["temp_data_path"], dtype={"Temperature": float}
+        )
         weather_df.index = pd.to_datetime(weather_df.iloc[:, 0], format="mixed", dayfirst=True, utc=True)
         weather_df.index.name = "DateTime"
         weather_df.drop(weather_df.columns[0], axis=1, inplace=True)
@@ -703,7 +715,12 @@ def label_meters(sm_ids, sm_with_hp, cfg):
 
             # Compute the TDEL confidence and meta information using BIC-based model comparison
             phase_labels, meta = _compute_TDEL_confidence_BIC(
-                sm_df=sm_df, post_thermal_load=post_thermal_load, temp_col="Temperature", T_balance=15.0, min_timestamps=1400)
+                sm_df=sm_df,
+                post_thermal_load=post_thermal_load,
+                temp_col="Temperature",
+                T_balance=15.0,
+                min_timestamps=1400,
+            )
 
             print("Sm to _compute_TDEL_confidence_BIC")
 
@@ -711,21 +728,21 @@ def label_meters(sm_ids, sm_with_hp, cfg):
             phase_cols = [col for col in sm_df.columns if col.startswith('l')]
 
             sm_phase_label = {phase_col: {"label": cfg["thresholds"]["confidence_threshold"] < round(float(label), 4),
-                                          "confidence": round(float(label), 4)} 
-                                          for phase_col, label in zip(phase_cols, phase_labels)}
-            
+                                          "confidence": round(float(label), 4)}
+                                          for phase_col, label in zip(phase_cols, phase_labels, strict=False)}
+
             if cfg["add_meta_results"]:
                 meta_dict = {"TDEL_info": [], "TDEL_meta": [], "MAE": [], "MAEr": [], "n_t_bins": ""}
                 meta_dict["TDEL_info"].append(sm_phase_label)
                 meta_dict["TDEL_meta"].append(meta)
                 meta_dict["n_t_bins"] = n_bins
-                
+
                 # Calculate MAE and MAEr
                 if loadb_list is not None and cfg["include_mae"]:
                     mae_list, maer_list = _calculate_mae(sm_df, post_thermal_load, loadb_list)
                     meta_dict["MAE"].extend(f"{phase}: {mae_list[i]:.4f}" for i, phase in enumerate(phase_cols))
                     meta_dict["MAEr"].extend(f"{phase}: {maer_list[i]:.4%}" for i, phase in enumerate(phase_cols))
-            
+
             print(f"Smart meter {sm_id} phase labels: {sm_phase_label}")
 
             for phase_col, phase_data in sm_phase_label.items():
@@ -745,7 +762,7 @@ def label_meters(sm_ids, sm_with_hp, cfg):
                     cable_id=None,
                 )
 
-            
+
             # # TODO: Return results and insert in DAG
             # # Add results to meta.run_results schema
             # for phase_col, phase_data in sm_phase_label.items():
@@ -764,7 +781,7 @@ def label_meters(sm_ids, sm_with_hp, cfg):
             #         edge_id=None,
             #         cable_id=None,
             #     )
-            
+
             meta_controller.complete_workflow(workflow=f"stat_labeling_sm_{sm_id}")
 
 

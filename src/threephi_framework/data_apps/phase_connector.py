@@ -1,11 +1,7 @@
 import logging
 
-import numpy as np
-from dask import compute, delayed
-
 from threephi_framework.data_apps.base import BaseDataApp
 from threephi_framework.dtu.phase_connector import recommend_phase
-
 
 
 class PhaseConnector(BaseDataApp):
@@ -25,7 +21,7 @@ class PhaseConnector(BaseDataApp):
 
     def identify_optimal_phase_connection(self) -> None:
         """Evaluate the configured smart meters; results are persisted to the meta DB."""
-        
+
         cfg = self._build_dtu_cfg()
 
         results = recommend_phase(sm_id=self.sm_id, cfg=cfg)

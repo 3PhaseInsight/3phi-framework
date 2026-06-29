@@ -401,7 +401,7 @@ class TopologyController:
         if as_dask:
             return dd.from_pandas(pdf, npartitions=1)
         return pdf
-    
+
     def get_topology_chain_for_meter(self, meter_id: int):
         """Helper method to retrieve the topology chain for a given meter ID.
         Args:

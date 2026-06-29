@@ -1,12 +1,11 @@
 import logging
 import time
+
 import numpy as np
 import pandas as pd
 
 import threephi_framework.db.db as threephi_db
-from threephi_framework import TopologyController
-from threephi_framework import TimeSeriesController
-from threephi_framework import MetaController
+from threephi_framework import MetaController, TimeSeriesController, TopologyController
 from threephi_framework.object_storage.s3_connector import S3Connector
 
 
@@ -25,11 +24,13 @@ def _load_feeder_data(sm_id, cfg):
     current_feeder_id  = feeder_id
 
     meters_dict= topology_controller.get_meters_for_node(node_id=feeder_id, node_type='lv_feeder')
-    
+
     meters_for_feeder = [str(m['id']) for m in meters_dict]
     sm_ids_of_feeder = meters_for_feeder   # cache for label loaders
 
-    feeder_df = timeseries_controller.get_time_series_data(meter_ids=meters_for_feeder, processing_level=cfg["profile_processing_level"])
+    feeder_df = timeseries_controller.get_time_series_data(
+        meter_ids=meters_for_feeder, processing_level=cfg["profile_processing_level"]
+    )
     feeder_df = feeder_df.compute()  # bring into memory for processing
 
     active_power_cols = ["active_power_p14_l1", "active_power_p14_l2", "active_power_p14_l3"]
@@ -45,7 +46,7 @@ def _load_feeder_data(sm_id, cfg):
 def _load_hp_labels(sm_ids_of_feeder, cfg) -> pd.DataFrame:
 
     meta_controller = MetaController(threephi_db.new_session)
-    
+
     ALL_ALGORITHMS = ["label_propagation", "logistic_regression", "hierarchical_clustering"]
     preferred = cfg['HP_ML_algorithm']
     fallback_algorithms = [a for a in ALL_ALGORITHMS if a != preferred]
@@ -92,7 +93,7 @@ def _load_hp_labels(sm_ids_of_feeder, cfg) -> pd.DataFrame:
         "logistic_regression": "Electric Heating Logistic Regression",
         "hierarchical_clustering": "Electric Heating Hierarchical Clustering",
     }
-        
+
     label_data = pd.DataFrame()
     for sm_id, algo in sm_algo_map.items():
         label_type = ALGO_LABEL_MAP[algo]
@@ -290,9 +291,9 @@ def _compute_distributions(feeder_df, labels_df, sm_id):
 
     # C2 — same-type appliance count per phase
     # pred_col = label_columns.get(cfg["phase_scoring"]["appliance_type"], 'predicted_hp')
-        
+
     if not labels_df.empty:
-        typed = labels_df[labels_df['label'] == True].copy()
+        typed = labels_df[labels_df['label'] == "True"].copy()
 
         phase_counts = (
             typed['phase']
@@ -366,14 +367,11 @@ def recommend_phase(sm_id, cfg):
     IDEAL = 1 / 3
     W = cfg["weights"]
     feeder_df, current_feeder_id, sm_ids_of_feeder = _load_feeder_data(sm_id, cfg)
-    if cfg["appliance_type"] == "ev":
-        labels_df = _load_ev_labels()
-    else:        
-        labels_df = _load_hp_labels(sm_ids_of_feeder, cfg)
+    labels_df = _load_ev_labels() if cfg["appliance_type"] == "ev" else _load_hp_labels(sm_ids_of_feeder, cfg)
 
     phase_consumption, sm_id_consumption, phase_counts, _ = \
         _compute_distributions(feeder_df, labels_df, sm_id)
-    
+
 
     def to_share(series):
         total = series.sum()
@@ -454,4 +452,3 @@ def recommend_phase(sm_id, cfg):
     )
 
     return result
-    

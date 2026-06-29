@@ -1,6 +1,7 @@
 from threephi_framework.data_apps.base import BaseDataApp
 from threephi_framework.processing_level import ProcessingLevel
 
+
 class TopologyIngestor(BaseDataApp):
     """
     Topology Ingestion Data App.

@@ -577,7 +577,7 @@ class MetaController:
         s.commit()
 
     def is_workflow_completed(self, workflow: str) -> bool:
-        s = self._sf()    
+        s = self._sf()
         try:
             return WorkflowStateResource(s).is_completed(workflow)
         finally:

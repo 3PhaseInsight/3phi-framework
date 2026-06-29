@@ -1,50 +1,32 @@
-import pandas as pd
-import numpy as np
 import logging
-from tqdm import tqdm
+
 import matplotlib
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+
 matplotlib.use("Agg", force=True)
-import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler
-from collections import Counter
-from scipy.spatial.distance import pdist
-from scipy.cluster.hierarchy import linkage, fcluster, dendrogram
-
-from threephi_framework.data_extractor.data_extractor import DataExtractor
-import threephi_framework.db.db as threephi_db
-from threephi_framework.controllers.meta import MetaController
-from threephi_framework.object_storage.s3_connector import S3Connector
-from threephi_framework.controllers.time_series import TimeSeriesController
-from threephi_framework.controllers.topology import TopologyController
-
-
+import json
 import os
 import sys
-import json
-from sklearn.discriminant_analysis import StandardScaler
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import make_pipeline
-import logging
-from sklearn.cluster import AgglomerativeClustering
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from sklearn.metrics import recall_score, silhouette_score
-from scipy.cluster.hierarchy import linkage, dendrogram
-from sklearn.semi_supervised import LabelPropagation
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
-import pandas as pd
-import numpy as np
-from sklearn.metrics import recall_score, f1_score
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-from matplotlib.colors import Normalize
-from tqdm import tqdm
 import warnings
 
+import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
+from scipy.cluster.hierarchy import dendrogram, linkage
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.decomposition import PCA
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import recall_score, silhouette_score
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.semi_supervised import LabelPropagation
 
+import threephi_framework.db.db as threephi_db
+from threephi_framework.controllers.meta import MetaController
+from threephi_framework.controllers.time_series import TimeSeriesController
+from threephi_framework.data_extractor.data_extractor import DataExtractor
+from threephi_framework.object_storage.s3_connector import S3Connector
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 
@@ -60,7 +42,7 @@ def _preprocess_smart_meters(sm_df, sm_id):
     data = sm_df[[col for col in sm_df.columns if 'active_power_p14' in col]]
     data.columns = [col.replace('active_power_p14_', '') for col in data.columns]
     data.columns = [f"{col}_{sm_id}" for col in data.columns]
-    
+
     # remove columns with zero or very low consumption
     min_std_threshold = 1e-8
     data = data.loc[:, data.std() > min_std_threshold]
@@ -73,8 +55,9 @@ def _preprocess_smart_meters(sm_df, sm_id):
 
     # Remove periods with zero consumption across all phases (likely missing data)
     data = data[(data != 0).any(axis=1)]
-    
-    # Remove periods of sustained zero consumption longer than 1 weeks (assuming: 7 days * 4 recordings per hour * 24 = 672)
+
+    # Remove periods of sustained zero consumption longer than 1 weeks
+    # (assuming: 7 days * 4 recordings per hour * 24 = 672)
     zero_consumption_mask = (data == 0).all(axis=1)
     zero_consumption_groups = (zero_consumption_mask != zero_consumption_mask.shift()).cumsum()
     zero_consumption_durations = zero_consumption_mask.groupby(zero_consumption_groups).transform('sum')
@@ -89,9 +72,15 @@ def _load_temp_spotprice_refload_data(cfg) -> pd.DataFrame:
     data_extractor = DataExtractor(phase_measurements_dir=cfg["data_dir_path"])
 
     # Create the path to the external data directory
-    temp_data = data_extractor.s3_connector.read_small_csv(data_extractor.s3_base + cfg["temp_data_path"], dtype={"Temperature": float})
-    spot_data = data_extractor.s3_connector.read_small_csv(data_extractor.s3_base + cfg["spot_data_path"], dtype={"SpotPrice": float})
-    ref_data = data_extractor.s3_connector.read_small_csv(data_extractor.s3_base + cfg["ref_data_path"], dtype={"Reference_load": float})
+    temp_data = data_extractor.s3_connector.read_small_csv(
+        data_extractor.s3_base + cfg["temp_data_path"], dtype={"Temperature": float}
+    )
+    spot_data = data_extractor.s3_connector.read_small_csv(
+        data_extractor.s3_base + cfg["spot_data_path"], dtype={"SpotPrice": float}
+    )
+    ref_data = data_extractor.s3_connector.read_small_csv(
+        data_extractor.s3_base + cfg["ref_data_path"], dtype={"Reference_load": float}
+    )
 
     for df in [temp_data, spot_data, ref_data]:
         df.index = pd.to_datetime(df.iloc[:, 0], format="mixed", dayfirst=True, utc=True)
@@ -104,7 +93,7 @@ def _load_temp_spotprice_refload_data(cfg) -> pd.DataFrame:
 
 
 def _cluster_and_score(self, features_subset=None, n_clusters=2, true_labels=None, df=None):
-    
+
     # Cluster and score a given feature subset
     X = df[features_subset].dropna()
     y = true_labels.loc[X.index]
@@ -125,14 +114,17 @@ def _cluster_and_score(self, features_subset=None, n_clusters=2, true_labels=Non
         return None, None
 
     # Only consider the smaller cluster for recall
-    cluster_sizes = dict(zip(unique, counts))
+    cluster_sizes = dict(zip(unique, counts, strict=False))
     smallest_cluster_id = min(cluster_sizes, key=cluster_sizes.get)
     in_smallest_cluster = (labels == smallest_cluster_id)
     recall = y[in_smallest_cluster].sum() / y.sum() if y.sum() > 0 else 0
-    
+
     # Find the smallest cluster
     unique, counts = np.unique(labels, return_counts=True)
-    smallest_cluster_id = min(dict(zip(unique, counts)), key=lambda k: dict(zip(unique, counts))[k])
+    smallest_cluster_id = min(
+        dict(zip(unique, counts, strict=False)),
+        key=lambda k: dict(zip(unique, counts, strict=False))[k],
+    )
 
     # Get the meter numbers for samples in the smallest cluster
     meter_numbers_in_cluster = X.index[labels == smallest_cluster_id].map(lambda x: x.split("_")[1])
@@ -144,11 +136,11 @@ def _cluster_and_score(self, features_subset=None, n_clusters=2, true_labels=Non
     # Calculate coverage
     coverage = len(unique_meters_in_cluster) / len(all_meter_numbers) * 100
     relation_score = ((100 - coverage) + 100 * recall) / 2
-    
+
     return relation_score, labels
 
 def _forward_selection(self, df, true_labels, max_features=20, n_clusters=2):
-    
+
     # Initialize variables
     all_features = df.columns.tolist()
     selected = []
@@ -158,14 +150,16 @@ def _forward_selection(self, df, true_labels, max_features=20, n_clusters=2):
 
     # Track last best selection for rollback
     while len(selected) < max_features and remaining:
-        
+
         # Keep track of relation-scores for this iteration
-        relation_scores = [] 
+        relation_scores = []
 
         for feature in remaining:
             current_features = selected + [feature]
             try:
-                relation_score, _  = self._cluster_and_score(current_features, n_clusters=n_clusters, true_labels=true_labels, df=df)
+                relation_score, _  = self._cluster_and_score(
+                    current_features, n_clusters=n_clusters, true_labels=true_labels, df=df
+                )
                 if relation_score is not None:
                     relation_scores.append((feature, relation_score))
             except:
@@ -195,32 +189,34 @@ def _forward_selection(self, df, true_labels, max_features=20, n_clusters=2):
                 selected = last_best_selected.copy()
                 best_score = last_best_score
                 break
-        
+
     # Select the best feature set found
     feature_set, _ = max(history, key=lambda x: x[1])
 
     return list(feature_set), pd.DataFrame(history, columns=["feature_set", "best_score"])
 
 def _backward_selection(self, df, true_labels, max_features=5, n_clusters=2):
-    
+
     # Initialize variables
     selected = df.columns.tolist()
     best_score, _ = self._cluster_and_score(selected, n_clusters=n_clusters, true_labels=true_labels, df=df)
-    
+
     if best_score is None:
         return pd.DataFrame(columns=["feature_set", "best_score"])
 
     history = [(tuple(selected), best_score)]
 
     while len(selected) > max_features:
-        
+
         # Keep track of relation-scores for this iteration
         relation_scores = []
 
         for feature in selected:
             candidate = [f for f in selected if f != feature]
             try:
-                relation_score, _ = self._cluster_and_score(candidate, n_clusters=n_clusters, true_labels=true_labels, df=df)
+                relation_score, _ = self._cluster_and_score(
+                    candidate, n_clusters=n_clusters, true_labels=true_labels, df=df
+                )
                 if relation_score is not None:
                     relation_scores.append((feature, relation_score))
             except:
@@ -242,13 +238,13 @@ def _backward_selection(self, df, true_labels, max_features=5, n_clusters=2):
         else:
             count += 1
             selected.remove(worst_feature)
-            
+
             if count >= 4:
             # Roll back to last best selection and stop
                 selected = last_best_selected.copy()
                 best_score = last_best_score
                 break
-    
+
     # Select the best feature set found
     feature_set, _ = max(history, key=lambda x: x[1])
 
@@ -262,9 +258,9 @@ def _feature_based_pruning_for_propagation(features, true_labels):
         features (pd.DataFrame): DataFrame containing features for each phase.
         true_labels (pd.DataFrame): DataFrame containing true labels for each phase.
     """
-    
+
     # Initialize threshold for propation feature pruning
-    threshold = -0.1 
+    threshold = -0.1
 
     # generates the negative class for label propagation
     keep_mask = (features["temp_ratio_low_to_total"] > threshold)
@@ -276,12 +272,15 @@ def _feature_based_pruning_for_propagation(features, true_labels):
         threshold += 0.01
 
     if keep_mask.sum() == len(features):
-        logging.warning(f"No phases meet the negative class criteria of a temperature ratio under {threshold} between high an low temperate periods.\n")
+        logging.warning(
+            f"No phases meet the negative class criteria of a temperature ratio under "
+            f"{threshold} between high an low temperate periods.\n"
+        )
         logging.warning("Selecting random 5% non electric heating labeled phases to be false labels")
 
         # Randomly select 5% of the features to be false labels
         np.random.seed(42)
-                
+
         candidates = features[~true_labels["has_EH"]].index
 
         if len(candidates) == 0:
@@ -292,8 +291,8 @@ def _feature_based_pruning_for_propagation(features, true_labels):
         false_features = features.loc[random_indices]
 
         return remaining_labels, false_features
-    
-    else: 
+
+    else:
         # Use the mask to split the data, but only remove rows where true_labels is False
         remaining_labels = features[keep_mask | true_labels["has_EH"]]
 
@@ -304,14 +303,14 @@ def _feature_based_pruning_for_propagation(features, true_labels):
 
 
 def feature_extraction(sm_ids, cfg) -> pd.DataFrame:
-    
+
     """
     Extracts features per smart meter. Input can be either unit_ids (substations) or sm_ids (smart meters).
-    
+
     Args:
         sm_ids (list): List of smart meter IDs to extract features for.
         cfg (dict): Configuration dictionary.
-    
+
     Returns:
         pd.DataFrame: DataFrame containing extracted features for each smart meter.
     """
@@ -322,7 +321,7 @@ def feature_extraction(sm_ids, cfg) -> pd.DataFrame:
 
     # ----------- External data Loading -----------
     temp_data, spot_data, ref_data = _load_temp_spotprice_refload_data(cfg)
-    
+
     # Remove duplicated indices
     temp_data = temp_data[~temp_data.index.duplicated(keep='first')]
     ref_data = ref_data[~ref_data.index.duplicated(keep='first')]
@@ -364,13 +363,14 @@ def feature_extraction(sm_ids, cfg) -> pd.DataFrame:
 
         # ----------- SM Loading -----------
 
-        sm_df = timeseries_controller.get_time_series_data(meter_ids = [str(sm_id)]) # processing_level=cfg["sm_processing_level"]
+        # processing_level=cfg["sm_processing_level"]
+        sm_df = timeseries_controller.get_time_series_data(meter_ids = [str(sm_id)])
         sm_df = sm_df.compute()
         meter_data = _preprocess_smart_meters(sm_df, sm_id)
         if meter_data.empty:
             logging.warning(f"No valid meter data for {sm_id}. Skipping...")
             continue
-    
+
         # ----------- Data Preprocessing -----------
 
         meter_data_scaled = pd.DataFrame(
@@ -378,7 +378,7 @@ def feature_extraction(sm_ids, cfg) -> pd.DataFrame:
             index=meter_data.index,
             columns=meter_data.columns,
             )
-        
+
         # ----------- Align indices ----------- #
         common_index = meter_data_scaled.index.intersection(temp_data.index)
         common_index_spot = meter_data_scaled.index.intersection(spot_data.index)
@@ -477,7 +477,9 @@ def feature_extraction(sm_ids, cfg) -> pd.DataFrame:
             features_dict['weekend_consumption'] = scaled_series[weekend_mask].mean()
             weekday_mask = scaled_series.index.weekday < 5
             features_dict['weekday_consumption'] = scaled_series[weekday_mask].mean()
-            features_dict['weekend_weekday_ratio'] = features_dict['weekend_consumption'] / (features_dict['weekday_consumption'] + 0.1)
+            features_dict['weekend_weekday_ratio'] = features_dict['weekend_consumption'] / (
+                features_dict['weekday_consumption'] + 0.1
+            )
 
             features_dict['baseline_consumption'] = common_series[temp_common['Temperature'].between(14, 17)].mean()
             features_dict['thermal_consumption'] = common_series[temp_common['Temperature'] < 14].mean()
@@ -496,7 +498,7 @@ def feature_extraction(sm_ids, cfg) -> pd.DataFrame:
                     return a.corr(b)
 
             features_dict["temperature_correlation"] = correlation(
-                scaled_series, 
+                scaled_series,
                 temp_data["Temperature"]
             )
             features_dict["winter_temperature_correlation"] = correlation(
@@ -539,7 +541,7 @@ def feature_extraction(sm_ids, cfg) -> pd.DataFrame:
                     return slope
                 except Exception:
                     return np.nan
-            
+
             bin_sums = merged_data.groupby("Tbin")[phase].median()
             bin_sums = bin_sums.iloc[:min(7, len(bin_sums))]
             features_dict["temperature_bins"] = polyfit(bin_sums.index, bin_sums.values)
@@ -576,11 +578,11 @@ def feature_extraction(sm_ids, cfg) -> pd.DataFrame:
                 if series.nunique() <= 1:
                     return np.nan
                 return series.autocorr(lag=lag)
-            
+
             lags = [1, 2, 6, 12, 96, 720]
             for lag in lags:
                 features_dict[f"autocorrelation_{lag}"] = autocorrelation(meter_data[phase], lag)
-                
+
 
             # --- Temperature load ratios ---
 
@@ -638,12 +640,12 @@ def feature_extraction(sm_ids, cfg) -> pd.DataFrame:
                 features_dict["hdh_correlation"] = (np.nan)
                 features_dict["hdh_slope"] = (np.nan)
                 features_dict["hdh_mean_load"] = (np.nan)
-            
-            phase_features = {k: None if (v is None or (isinstance(v, float) and (np.isnan(v) or np.isinf(v)))) else v 
+
+            phase_features = {k: None if (v is None or (isinstance(v, float) and (np.isnan(v) or np.isinf(v)))) else v
                   for k, v in features_dict.items()}
-            
+
             phase_str = phase.split("_")[0] # Extract phase (e.g., "l1", "l2", "l3")
-            
+
             # Insert values into meta results per phase
             meta_controller.insert_run_result(
                     dag_id=cfg.get("dag_id", "default_dag"),
@@ -663,10 +665,10 @@ def feature_extraction(sm_ids, cfg) -> pd.DataFrame:
 
         meta_controller.complete_workflow(workflow=f"feature_engineering_sm_{sm_id}")
 
-    
 
 
-def hierarchical_clustering(self, 
+
+def hierarchical_clustering(self,
                             n_clusters: int = None,
                             linkage_method: str = None,
                             max_features: int = None,
@@ -679,17 +681,27 @@ def hierarchical_clustering(self,
                             overwrite_existing_results: bool = None,
                             plot_load_profiles: bool = None
                             ) -> pd.DataFrame:
-    
+
     # Overwrite config settings with arguments if provided (allows to dynamically change data app run in pipeline)
     self._update_config(args=locals().items())
 
-    # From fewest_meters_substation, unpack the dict (which have the structure like this: {"2600": {"SecondarySubstation.706039": {"Transformer.125763": {"LvFeeder.364204": {"Cabinet.86493": {"METER_NUMBER": ["319672", "749355"], "AVAILABLE_METERS": ["319672", "749355"], "MISSING_METERS": []}, "Cabinet.531278": {"METER_NUMBER": [], "AVAILABLE_METERS": [], "MISSING_METERS": []}, "Cabinet.459597": {"METER_NUMBER": ["606018", "97540", "531845", "621915"], "AVAILABLE_METERS": ["606018", "97540", "531845", "621915"], "MISSING_METERS": []}, "Cabinet.966954": {"METER_NUMBER": ["440503", "449868", "101382", "683210"], "AVAILABLE_METERS": ["440503", "449868", "101382", "683210"], "MISSING_METERS": []}, "Cabinet.426548": {"METER_NUMBER": ["769621", "620793", "363757"], "AVAILABLE_METERS": ["76...) (and mulitiple zip codes not just 2600), and find the  SecondarySubstation with fewest available meters, and extract that substations name
-    fewest_meters_substation = os.path.join(self.DataExtractor.processed_data_dir, "topology", "raw", "Raw_Topology_SM_mapping.json")
-    
+    # From fewest_meters_substation, unpack the dict (which have the structure like this: {"2600":
+    #  {"SecondarySubstation.706039": {"Transformer.125763": {"LvFeeder.364204": {"Cabinet.86493": {"METER_NUMBER":
+    #  ["319672", "749355"], "AVAILABLE_METERS": ["319672", "749355"], "MISSING_METERS": []}, "Cabinet.531278":
+    #  {"METER_NUMBER": [], "AVAILABLE_METERS": [], "MISSING_METERS": []}, "Cabinet.459597": {"METER_NUMBER": ["606018",
+    #  "97540", "531845", "621915"], "AVAILABLE_METERS": ["606018", "97540", "531845", "621915"], "MISSING_METERS": []},
+    #  "Cabinet.966954": {"METER_NUMBER": ["440503", "449868", "101382", "683210"], "AVAILABLE_METERS": ["440503",
+    #  "449868", "101382", "683210"], "MISSING_METERS": []}, "Cabinet.426548": {"METER_NUMBER": ["769621", "620793",
+    #  "363757"], "AVAILABLE_METERS": ["76...) (and mulitiple zip codes not just 2600), and find the
+    #   SecondarySubstation with fewest available meters, and extract that substations name
+    fewest_meters_substation = os.path.join(
+        self.DataExtractor.processed_data_dir, "topology", "raw", "Raw_Topology_SM_mapping.json"
+    )
+
     # Unpact the dict
-    with open(fewest_meters_substation, 'r') as f:
+    with open(fewest_meters_substation) as f:
         topology_dict = json.load(f)
-    
+
     def count_available_meters(substation):
         total = 0
         for transformer in substation.values():
@@ -711,14 +723,20 @@ def hierarchical_clustering(self,
     # Extract just the numeric ID
     substation_few = min_substation.split(".")[-1] if min_substation else None
     logging.info(f"Substation with fewest available meters: {substation_few} ({min_count} meters)")
-    
+
     substation_few = int(substation_few)
 
     # Check if results already exist
-    hierarchical_result_path = os.path.join(self.DIR_DATA_APP, "Results", self.result_name, 'hierarchical_clustering', 'hierarchical_clustering_predictions.csv')
+    hierarchical_result_path = os.path.join(
+        self.DIR_DATA_APP,
+        "Results",
+        self.result_name,
+        'hierarchical_clustering',
+        'hierarchical_clustering_predictions.csv',
+    )
     if os.path.exists(hierarchical_result_path) and not self.overwrite_existing_results:
         logging.info(f"Hierarchical run of {self.result_name} already exists. Loading and returning results...")
-        
+
         # Extract results
         results = pd.read_csv(hierarchical_result_path)
         return results
@@ -728,7 +746,7 @@ def hierarchical_clustering(self,
     os.makedirs(results_dir, exist_ok=True)
 
     # Set up meta data dict
-    if self.save_meta_results:      
+    if self.save_meta_results:
         meta_results = {"Feature Selection": self.feature_selection,
                         "Classifying Threshold": "N/A",
                         "Selected Features": None,
@@ -756,7 +774,7 @@ def hierarchical_clustering(self,
     if not self.sm_ids:
         # Get smart meter ids from features index
         self.sm_ids = list(set([idx.split('_', 1)[1] for idx in features.index]))
-    
+
     true_labels = None
     if self.use_labels:
         # Load True Labels only if label-dependent evaluation is enabled
@@ -768,20 +786,29 @@ def hierarchical_clustering(self,
         df_labels_list['meter_number'] = df_labels_list['meter_number'].str.replace('l', 'l', regex=False)
         df_labels_list.set_index('meter_number', inplace=True)
         df_labels_list = df_labels_list[['has_EH']]
-        df_labels_list['has_EH'] = df_labels_list['has_EH'] > self.EH_threshold # If the confidence is over the threshold, consider it true
+        # If the confidence is over the threshold, consider it true
+        df_labels_list['has_EH'] = df_labels_list['has_EH'] > self.EH_threshold
         true_labels = df_labels_list
-    
+
     # Preprocessing for clustering
     logging.info("Performing hierarchical clustering...")
     agg = AgglomerativeClustering(n_clusters=self.n_clusters, linkage=self.linkage_method)
-    
-    logging.info(f"Selecting features via {self.feature_selection} selection..." if self.feature_selection else "No feature selection applied.")
+
+    logging.info(
+        f"Selecting features via {self.feature_selection} selection..."
+        if self.feature_selection
+        else "No feature selection applied."
+    )
     if self.feature_selection == "forward" and self.use_labels:
-        best_features, _ = self._forward_selection(features, true_labels, max_features=self.max_features, n_clusters=self.n_clusters)
+        best_features, _ = self._forward_selection(
+            features, true_labels, max_features=self.max_features, n_clusters=self.n_clusters
+        )
         X = features[best_features]
         logging.info(f"Selected features: {best_features}")
     elif self.feature_selection == "backward" and self.use_labels:
-        best_features, _ = self._backward_selection(features, true_labels, max_features=self.max_features, n_clusters=self.n_clusters)
+        best_features, _ = self._backward_selection(
+            features, true_labels, max_features=self.max_features, n_clusters=self.n_clusters
+        )
         X = features[best_features]
         logging.info(f"Selected features: {best_features}")
     elif self.feature_selection in ["forward", "backward"] and not self.use_labels:
@@ -794,11 +821,11 @@ def hierarchical_clustering(self,
         X = features
 
     logging.info(f"Features shape: {features.shape}, index sample: {features.index[:5].tolist()}")
-    
+
 
     if self.save_meta_results:
         meta_results['Selected Features'] = best_features
-    
+
     # Fit labels based on selected features
     labels = agg.fit_predict(X)
     results = pd.DataFrame({'cluster': labels}, index=X.index)
@@ -811,11 +838,11 @@ def hierarchical_clustering(self,
         else:
             sil_score = "N/A"
         meta_results['Silhouette Score'] = sil_score
-    
+
     if self.plot_figures:
 
         # # Set seaborn darkgrid style for all plots
-        # sns.set_style('darkgrid')  
+        # sns.set_style('darkgrid')
         # sns.set_palette("muted")
         # colors_tab = ['blue', 'tab:orange']
         # cmap_custom = mcolors.ListedColormap(colors_tab)
@@ -824,7 +851,7 @@ def hierarchical_clustering(self,
         # max_cluster = np.max(unique_clusters)
         # norm = Normalize(vmin=min_cluster, vmax=max_cluster)
         # EH_indices = true_labels[true_labels['has_EH'] == 1].index if self.use_labels else pd.Index([])
-        
+
 
         # Plot dendrogram
         Z = linkage(X, method=self.linkage_method)
@@ -833,7 +860,7 @@ def hierarchical_clustering(self,
         plt.title('Hierarchical Clustering Dendrogram', fontsize=16, fontweight='bold')
         plt.xlabel('Smart meter phases', fontsize=14)
         plt.ylabel('Distance', fontsize=14)
-        
+
         if self.save_plots:
             plt.savefig(os.path.join(results_dir, 'hierarchical_clustering_dendrogram.png'))
         else:
@@ -864,15 +891,15 @@ def hierarchical_clustering(self,
         if self.use_labels:
             legend_elements.append(plt.Line2D([0], [0], marker='o', color='black', label='Electric Heating Index',
                                             markerfacecolor='none', markersize=8, linestyle='None'))
-        
+
         legend = plt.legend(handles=legend_elements, title='Clusters and Labels', fontsize=14, title_fontsize=16)
         legend.get_frame().set_edgecolor('black')
         legend.get_frame().set_linewidth(0.8)
         plt.xlabel('Principal Component 1', fontsize=14)
         plt.ylabel('Principal Component 2', fontsize=14)
-        plt.title(f'Agglomerative Hierarchical Results (PCA Projection)', fontsize=16, fontweight='bold')
+        plt.title('Agglomerative Hierarchical Results (PCA Projection)', fontsize=16, fontweight='bold')
         plt.grid(True)
-        
+
         if self.save_plots:
             plt.savefig(os.path.join(results_dir, 'hierarchical_clustering_pca.png'))
         else:
@@ -892,15 +919,23 @@ def hierarchical_clustering(self,
         percentage_smallest = (true_in_smallest / total_true_labels) * 100 if total_true_labels > 0 else 0
 
         ## Coverage: Calculate the percentage of smart meters with at least one phase in the smallest cluster
-        meter_numbers_in_smallest_cluster = results_aligned.index[results_aligned['cluster'] == smallest_cluster_id].map(lambda x: x.split("_")[1])
+        meter_numbers_in_smallest_cluster = results_aligned.index[
+            results_aligned['cluster'] == smallest_cluster_id
+        ].map(lambda x: x.split("_")[1])
         unique_meters_in_smallest_cluster = set(meter_numbers_in_smallest_cluster)
         all_meter_numbers = set(true_labels_aligned.index.map(lambda x: x.split("_")[1]))
         coverage_smallest = (len(unique_meters_in_smallest_cluster) / len(all_meter_numbers)) * 100
 
         ## Cluster-Recall: Calculate recall of true labels in the smallest cluster
         has_electric_heating = true_labels_aligned['has_EH']
-        found_profiles = results_aligned.index[(has_electric_heating == 1) & (results_aligned['cluster'] == smallest_cluster_id)]
-        recall_smallest = has_electric_heating[found_profiles].sum() / has_electric_heating.sum() if has_electric_heating.sum() > 0 else 0
+        found_profiles = results_aligned.index[
+            (has_electric_heating == 1) & (results_aligned['cluster'] == smallest_cluster_id)
+        ]
+        recall_smallest = (
+            has_electric_heating[found_profiles].sum() / has_electric_heating.sum()
+            if has_electric_heating.sum() > 0
+            else 0
+        )
 
         ## Relation-Score: Final score as the average of coverage and recall
         relation_score = (coverage_smallest + (recall_smallest * 100)) / 2
@@ -948,14 +983,14 @@ def hierarchical_clustering(self,
 
     if self.plot_load_profiles and self.use_labels:
         self._plot_load_profiles(results, results_dir, has_electric_heating, method_name='Hierarchical Clustering')
-        logging.info(f'Created load profile for hierarchical clustering')
+        logging.info('Created load profile for hierarchical clustering')
     elif self.plot_load_profiles and not self.use_labels:
         logging.warning("plot_load_profiles requires labels. Skipping because use_labels=False.")
 
     return results
 
 def label_propagation(feature_results, sm_ids, cfg) -> pd.DataFrame:
-    
+
     # Overwrite config settings with arguments if provided (allows to dynamically change data app run in pipeline)
 
 
@@ -985,16 +1020,20 @@ def label_propagation(feature_results, sm_ids, cfg) -> pd.DataFrame:
 
     features = feature_results.dropna(how="all") # drop un-recorded phases
     features = features.fillna(0) # fill remaining NaNs with 0 for clustering
-    
+
     # TODO: Add integration with StatLabeler
-    logging.info(f"Checking if results already exist for smart meters.")
+    logging.info("Checking if results already exist for smart meters.")
     lack_workflow = []
     for sm_id in sm_ids:
         workflow_completed = meta_controller.is_workflow_completed(f"stat_labeling_sm_{sm_id}")
         if not workflow_completed:
             lack_workflow.append(sm_id)
     if lack_workflow:
-        raise ValueError(f"StatLabeling workflow has not been completed for the following smart meters: {lack_workflow}. Please run the StatLabeler workflow for these meters before running label propagation.")
+        raise ValueError(
+            f"StatLabeling workflow has not been completed for the following smart meters: "
+            f"{lack_workflow}. Please run the StatLabeler workflow for these meters before "
+            f"running label propagation."
+        )
 
     # Load the per-phase ground thruth labels from StatLabeler and store them in a dataframe
     # Save the label as a boolean based on whether the confidence is above the EH threshold defined in the config
@@ -1025,10 +1064,11 @@ def label_propagation(feature_results, sm_ids, cfg) -> pd.DataFrame:
     # df_labels_list['meter_number'] = df_labels_list['meter_number'].str.replace('l', 'l', regex=False)
     # df_labels_list.set_index('meter_number', inplace=True)
     # df_labels_list = df_labels_list[['has_EH']]
-    # df_labels_list['has_EH'] = df_labels_list['has_EH'] > self.EH_threshold # If the confidence is over the threshold, consider it true
+    # df_labels_list['has_EH'] = df_labels_list['has_EH'] > self.EH_threshold
+    # # If the confidence is over the threshold, consider it true
     # true_labels = df_labels_list
 
-    
+
     # Initilize preprocessing for label propagation
 
     ## Preprocessing for label propagation
@@ -1041,10 +1081,10 @@ def label_propagation(feature_results, sm_ids, cfg) -> pd.DataFrame:
     if overlap:
         logging.info(f"Overlap found in index: {overlap}")
         logging.info(f"Number of overlapping indices: {len(overlap)}")
-        
+
         ## Remove overlapping indices from false_features
         false_features = false_features.loc[~false_features.index.isin(overlap)]
-    
+
     ## Split true and false labels
     false_labels = true_labels.loc[false_features.index]
 
@@ -1052,11 +1092,11 @@ def label_propagation(feature_results, sm_ids, cfg) -> pd.DataFrame:
     X = features
 
     positive_idx = true_labels.index[true_labels["has_EH"]].intersection(X.index)
-    negative_idx = false_labels.index[false_labels["has_EH"] == False].intersection(X.index)
+    negative_idx = false_labels.index[~false_labels["has_EH"]].intersection(X.index)
     print(f"Positive indices: {len(positive_idx)}")
     print(f"Negative indices: {len(negative_idx)}")
 
-    
+
     if len(positive_idx) == 0:
         logging.warning("No positive labels found. Selecting highest-confidence candidate as seed.")
 
@@ -1097,7 +1137,12 @@ def label_propagation(feature_results, sm_ids, cfg) -> pd.DataFrame:
         # Histogram of predicted probabilities
         fig = plt.figure(figsize=(10, 6))
         plt.hist(propagated_probabilities_lp, bins=50, color='skyblue', edgecolor='black', alpha=0.7)
-        plt.axvline(x=cfg["label_propagation"]["label_threshold"], color='red', linestyle='--', label=f'Confidence Threshold ({cfg["label_propagation"]["label_threshold"]})')
+        plt.axvline(
+            x=cfg["label_propagation"]["label_threshold"],
+            color='red',
+            linestyle='--',
+            label=f'Confidence Threshold ({cfg["label_propagation"]["label_threshold"]})',
+        )
         plt.xlabel('Predicted Probability of Electric Heating')
         plt.ylabel('Frequency')
         plt.title('Distribution of Predicted Electric Heating Probabilities (Label Propagation)')
@@ -1111,7 +1156,12 @@ def label_propagation(feature_results, sm_ids, cfg) -> pd.DataFrame:
         # Histogram of predicted probabilities for unlabeled samples only
         fig = plt.figure(figsize=(10, 6))
         plt.hist(unlabeled_probabilities_lp, bins=50, color='skyblue', edgecolor='black', alpha=0.7)
-        plt.axvline(x=cfg["label_propagation"]["label_threshold"], color='red', linestyle='--', label=f'Confidence Threshold ({cfg["label_propagation"]["label_threshold"]})')
+        plt.axvline(
+            x=cfg["label_propagation"]["label_threshold"],
+            color='red',
+            linestyle='--',
+            label=f'Confidence Threshold ({cfg["label_propagation"]["label_threshold"]})',
+        )
         plt.xlabel('Predicted Probability of Electric Heating')
         plt.ylabel('Frequency')
         plt.title('Distribution of Predicted Electric Heating Probabilities (Unlabeled Samples Only)')
@@ -1131,7 +1181,7 @@ def label_propagation(feature_results, sm_ids, cfg) -> pd.DataFrame:
         cmap_custom = mcolors.ListedColormap(colors_tab)
 
         fig = plt.figure(figsize=(10, 8))
-        scatter = plt.scatter(
+        plt.scatter(
             X_pca[:, 0], X_pca[:, 1],
             c=predicted_labels_lp,
             cmap=cmap_custom,
@@ -1139,7 +1189,7 @@ def label_propagation(feature_results, sm_ids, cfg) -> pd.DataFrame:
             edgecolors='none'
         )
         ## Overlay EH-classified labels from true_labels with black edge
-        true_EH_indices = true_labels[true_labels['has_EH'] == True].index
+        true_EH_indices = true_labels[true_labels['has_EH']].index
         mask_true_EH = np.array([idx in true_EH_indices for idx in X.index])
         plt.scatter(
             X_pca[mask_true_EH, 0],
@@ -1148,9 +1198,16 @@ def label_propagation(feature_results, sm_ids, cfg) -> pd.DataFrame:
             label='Index Electric Heating', s=80, marker='o'
         )
         legend_elements = [
-            plt.Line2D([0], [0], marker='o', color='w', label='Classified not EH', markerfacecolor=colors_tab[0], markersize=8),
-            plt.Line2D([0], [0], marker='o', color='w', label='Classified EH', markerfacecolor=colors_tab[1], markersize=8),
-            plt.Line2D([0], [0], marker='o', color='black', label='Electric Heating Index', markerfacecolor='none', markersize=8, linestyle='None')
+            plt.Line2D(
+                [0], [0], marker='o', color='w', label='Classified not EH', markerfacecolor=colors_tab[0], markersize=8
+            ),
+            plt.Line2D(
+                [0], [0], marker='o', color='w', label='Classified EH', markerfacecolor=colors_tab[1], markersize=8
+            ),
+            plt.Line2D(
+                [0], [0], marker='o', color='black', label='Electric Heating Index',
+                markerfacecolor='none', markersize=8, linestyle='None'
+            )
         ]
         legend = plt.legend(handles=legend_elements, title='Predicted Labels', fontsize=14, title_fontsize=16)
         legend.get_frame().set_edgecolor('black')
@@ -1177,14 +1234,17 @@ def label_propagation(feature_results, sm_ids, cfg) -> pd.DataFrame:
 
 
     # Calculate performance metrics
-    ## Due to the nature of label propagation, we cannot directly calculate recall or relation-score on the predicted labels since we used the true labels for training. if wished, we can evaluate how well the model guessed the hidden test labels that were not used during training.
-    ## TODO: make a recall calculation, NOTE: would result in running the moddel twice, or redusing the quality of the result
+    ## Due to the nature of label propagation, we cannot directly calculate recall or relation-score on the
+    ## predicted labels since we used the true labels for training. if wished, we can evaluate how well the
+    ## model guessed the hidden test labels that were not used during training.
+    ## TODO: make a recall calculation, NOTE: would result in running the moddel twice, or redusing the
+    ## quality of the result
 
 
     ### Calculate coverage_hp
     coverage = len(duplicate_meter_counts) / len(sm_ids) * 100
 
-    
+
     # Add meta results
     ## Add information on labels to meta results
     # if cfg["save_meta_results"]:
@@ -1228,7 +1288,7 @@ def label_propagation(feature_results, sm_ids, cfg) -> pd.DataFrame:
     # Complete the last meter
     if current_sm_id is not None:
         meta_controller.complete_workflow(workflow=f"label_propagation_sm_{current_sm_id}")
-    
+
 
 def logistic_regression(sm_ids: list = None,
                         max_features: int = None,
@@ -1240,12 +1300,18 @@ def logistic_regression(sm_ids: list = None,
                         save_results: bool = None,
                         save_meta_results: bool = None,
                         overwrite_existing_results: bool = None,):
-    
+
     # Check if results already exist
-    logistic_result_path = os.path.join(self.DIR_DATA_APP, "Results", self.result_name, 'logistic_regression', 'logistic_regression_predictions.csv')
+    logistic_result_path = os.path.join(
+        self.DIR_DATA_APP,
+        "Results",
+        self.result_name,
+        'logistic_regression',
+        'logistic_regression_predictions.csv',
+    )
     if os.path.exists(logistic_result_path) and not self.overwrite_existing_results:
         logging.info(f"Logistic regression run of {self.result_name} already exists. Loading and returning results...")
-        
+
         # Extract results
         results = pd.read_csv(logistic_result_path)
         return results
@@ -1281,7 +1347,7 @@ def logistic_regression(sm_ids: list = None,
     if not self.sm_ids:
         # Get smart meter ids from features index
         self.sm_ids = list(set([idx.split('_', 1)[1] for idx in features.index]))
-    
+
 
     # Load True Labels
     logging.info("Loading true labels for logistic regression...")
@@ -1292,10 +1358,11 @@ def logistic_regression(sm_ids: list = None,
     df_labels_list['meter_number'] = df_labels_list['meter_number'].str.replace('l', 'l', regex=False)
     df_labels_list.set_index('meter_number', inplace=True)
     df_labels_list = df_labels_list[['has_EH']]
-    df_labels_list['has_EH'] = df_labels_list['has_EH'] > self.EH_threshold # If the confidence is over the threshold, consider it true
+    # If the confidence is over the threshold, consider it true
+    df_labels_list['has_EH'] = df_labels_list['has_EH'] > self.EH_threshold
     true_labels = df_labels_list
 
-    # Prepare X and y for logistic regression        
+    # Prepare X and y for logistic regression
     ## Remove all meters from true_labels that are not in features
     true_labels = true_labels.loc[true_labels.index.intersection(features.index)]
 
@@ -1304,14 +1371,22 @@ def logistic_regression(sm_ids: list = None,
     if not missing_indices_features.empty:
         missing_df = pd.DataFrame(False, index=missing_indices_features, columns=['has_EH'])
         true_labels = pd.concat([true_labels, missing_df])
-    
-    logging.info(f"Selecting features via {self.feature_selection} selection..." if self.feature_selection else "No feature selection applied.")
+
+    logging.info(
+        f"Selecting features via {self.feature_selection} selection..."
+        if self.feature_selection
+        else "No feature selection applied."
+    )
     if self.feature_selection == "forward":
-        best_features, _ = self._forward_selection(features, true_labels, max_features=self.max_features, n_clusters=self.n_clusters)
+        best_features, _ = self._forward_selection(
+            features, true_labels, max_features=self.max_features, n_clusters=self.n_clusters
+        )
         X = features[best_features]
         logging.info(f"Selected features: {best_features}")
     elif self.feature_selection == "backward":
-        best_features, _ = self._backward_selection(features, true_labels, max_features=self.max_features, n_clusters=self.n_clusters)
+        best_features, _ = self._backward_selection(
+            features, true_labels, max_features=self.max_features, n_clusters=self.n_clusters
+        )
         X = features[best_features]
         logging.info(f"Selected features: {best_features}")
     else:
@@ -1324,14 +1399,14 @@ def logistic_regression(sm_ids: list = None,
 
     ## Create y
     y = true_labels
-    
+
     # Custom train-test split to ensure no data leakage between phases of the same meter
     ## Create training and test sets based on unique meter numbers
     xmeters = X.index.map(lambda x: x.split("_")[1])
-    
+
     ## Select random 10% of xmeters for training
     x_test_meters = np.random.choice(xmeters.unique(), size=int(len(xmeters) * self.train_split), replace=False)
-    
+
     ## Split X and y based on selected test meters
     X_test = X[xmeters.isin(x_test_meters)]
     X_train = X[~xmeters.isin(x_test_meters)]
@@ -1339,7 +1414,7 @@ def logistic_regression(sm_ids: list = None,
     y_train = y.loc[X_train.index]
     y_test = y.loc[X_test.index]
 
-    # Generate logistic regression model 
+    # Generate logistic regression model
     log_model = make_pipeline(
         StandardScaler(),
         LogisticRegression(max_iter=1000, random_state=42, class_weight='balanced', solver='liblinear', C=1)
@@ -1349,13 +1424,13 @@ def logistic_regression(sm_ids: list = None,
     ## Fit model
     log_model.fit(X_train, y_train.values.ravel())
 
-    
+
     # Prepare results on entire dataset
     probs = log_model.predict_proba(X)[:, 1]
     mask = probs >= self.logistic_threshold
     results = pd.DataFrame({'predicted_EH': mask, 'logistic_probability': probs}, index=X.index)
     logging.info("Logistic regression completed.")
-    
+
     # Generate predicition metrics
     ## Get predictions on test set
     probs_test = log_model.predict_proba(X_test)[:, 1]
@@ -1408,7 +1483,12 @@ def logistic_regression(sm_ids: list = None,
         # Histogram of predicted probabilities
         plt.figure(figsize=(10, 6))
         plt.hist(results['logistic_probability'], bins=50, color='skyblue', edgecolor='black', alpha= 0.7)
-        plt.axvline(x=self.logistic_threshold, color='red', linestyle='--', label=f'Confidence Threshold ({self.logistic_threshold})')
+        plt.axvline(
+            x=self.logistic_threshold,
+            color='red',
+            linestyle='--',
+            label=f'Confidence Threshold ({self.logistic_threshold})',
+        )
         plt.xlabel('Predicted Probability of Electric Heating')
         plt.ylabel('Frequency')
         plt.title('Distribution of Predicted Electric Heating Probabilities (Logistic Regression)')
