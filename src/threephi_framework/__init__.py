@@ -13,8 +13,12 @@ except PackageNotFoundError:
     __version__ = "0.0.0"
 
 # Re-export light, library-facing APIs only
+from .controllers.meta import MetaController
+from .controllers.time_series import TimeSeriesController
 from .controllers.topology import TopologyController
 from .data_apps.base import BaseDataApp
+from .data_apps.electric_heating_identifier import ElectricHeatingIdentifier
+from .data_apps.phase_connector import PhaseConnector
 from .data_apps.sm_classifier import SMClassifier
 from .data_apps.sm_phase_mapper import SMPhaseMapper
 from .data_apps.stat_labeler import StatLabeler
@@ -40,10 +44,14 @@ __all__ = [
     "TopologyCleaner",
     "TopologyIngestor",
     "TopologyTester",
+    "TopologyController",
+    "TimeSeriesController",
+    "MetaController",
+    "PhaseConnector",
     "SMClassifier",
+    "ElectricHeatingIdentifier",
     "SMPhaseMapper",
     "StatLabeler",
     "DataExtractor",
-    "TopologyController",
     "__version__",
 ]
