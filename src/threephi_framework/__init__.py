@@ -22,6 +22,11 @@ from .object_storage.s3_connector import S3Connector
 from .processing_level import ProcessingLevel
 from .data_apps.base import BaseDataApp
 from .data_apps.sm_classifier import SMClassifier
+<<<<<<< HEAD
+=======
+from .data_apps.sm_phase_mapper import SMPhaseMapper
+from .data_apps.stat_labeler import StatLabeler
+>>>>>>> 5a09595649dd20187b9a9a78cdb9f6530021c75e
 from .data_apps.timeseries_ingestor import TimeseriesIngestor
 from .data_apps.topology_cleaner import TopologyCleaner
 from .data_apps.topology_ingestor import TopologyIngestor
@@ -40,6 +45,13 @@ __all__ = [
     "TopologyCleaner",
     "TopologyIngestor",
     "TopologyTester",
+<<<<<<< HEAD
+=======
+    "SMClassifier",
+    "SMPhaseMapper",
+    "StatLabeler",
+    "DataExtractor",
+>>>>>>> 5a09595649dd20187b9a9a78cdb9f6530021c75e
     "TopologyController",
     "TimeSeriesController",
     "MetaController",
