@@ -66,6 +66,14 @@ Stat Labeler
    :undoc-members:
    :show-inheritance:
 
+SM Phase Mapper
+~~~~~~~~~~~~~~~
+
+.. automodule:: threephi_framework.data_apps.sm_phase_mapper
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Controllers
 -----------
 

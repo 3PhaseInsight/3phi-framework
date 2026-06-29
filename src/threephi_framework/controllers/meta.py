@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from threephi_framework.models.meta.run_result import RunResultModel
 from threephi_framework.resources.meta.meter import MetaMeterResource
 from threephi_framework.resources.meta.run_result import RunResultResource
+from threephi_framework.resources.meta.sm_phase_mapping import MetaPhaseMappingResource
 from threephi_framework.resources.meta.workflow_state import WorkflowStateResource
 from threephi_framework.resources.topology.assets.meter import MeterResource
 
@@ -43,6 +44,88 @@ class MetaController:
                 Factory that returns new SQLAlchemy sessions.
         """
         self._sf = session_factory
+
+    def update_phase_mapping(self, trafo_id: int, trafo_results: pd.DataFrame) -> None:
+        """
+        Update phase mapping results for all smart meter phases under one transformer.
+
+        Stores one row per (meter_id, sm_phase) in meta.sm_phase_mapping.
+        """
+        logging.info(f"Update phase mapping for transformer: {trafo_id}")
+
+        required_cols = [
+            "SM ID",
+            "SM Phase",
+            "Feeder Phase",
+            "Trafo Phase",
+            "True Feeder ID",
+            "True Trafo ID",
+            "Likely Cabinet ID",
+        ]
+
+        missing_cols = [col for col in required_cols if col not in trafo_results.columns]
+        if missing_cols:
+            raise ValueError(f"Cannot update phase mapping. Missing columns in trafo_results: {missing_cols}")
+
+        def _clean_int(value):
+            if pd.isna(value):
+                return None
+
+            value = str(value).strip()
+
+            if value.lower() in {"nan", "none", "", "other"}:
+                return None
+
+            return int(float(value))
+
+        def _clean_phase(value):
+            if pd.isna(value):
+                return None
+
+            value = str(value).strip()
+
+            if value.lower() in {"nan", "none", ""}:
+                return None
+
+            value = value.upper()
+
+            if value not in {"L1", "L2", "L3"}:
+                raise ValueError(f"Invalid phase value for meta.phase enum: {value}")
+
+            return value
+
+        rows_by_key = {}
+
+        for _, row in trafo_results.iterrows():
+            meter_id = _clean_int(row["SM ID"])
+            sm_phase = _clean_phase(row["SM Phase"])
+
+            if meter_id is None or sm_phase is None:
+                continue
+
+            cleaned_row = {
+                "meter_id": meter_id,
+                "sm_phase": sm_phase,
+                "feeder_phase": _clean_phase(row["Feeder Phase"]),
+                "trafo_phase": _clean_phase(row["Trafo Phase"]),
+                "true_feeder_id": _clean_int(row["True Feeder ID"]),
+                "true_trafo_id": _clean_int(row["True Trafo ID"]),
+                "likely_cabinet_id": _clean_int(row["Likely Cabinet ID"]),
+            }
+
+            rows_by_key[(meter_id, sm_phase)] = cleaned_row
+
+        rows = list(rows_by_key.values())
+
+        if not rows:
+            logging.warning(f"No valid phase mapping rows to update for transformer {trafo_id}.")
+            return
+
+        with self._sf() as s:
+            MetaPhaseMappingResource(s).upsert_many(rows)
+            s.commit()
+
+        logging.info(f"Updated phase mapping for transformer {trafo_id}. Rows written: {len(rows)}")
 
     def update_sm_characterization(self, meter_id: int, data: dict) -> None:
         """
